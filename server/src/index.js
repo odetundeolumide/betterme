@@ -81,14 +81,41 @@ app.post("/api/reports", async (req, res) => {
 
 // Save a finished quiz/diagnostic/practice (G1 source data)
 app.post("/api/attempts", async (req, res) => {
-  const { user_id, exam_code, topic_id, question_ids, answers, score, duration_s, status } = req.body || {};
+  const { user_id, exam_code, topic_id, question_ids, answers, score, duration_s, status, client_uuid, offline_created_at } = req.body || {};
   if (!user_id || !exam_code) return res.status(400).json({ error: "user_id + exam_code required" });
-  await pool.query(
-    `INSERT INTO attempts (user_id, exam_code, topic_id, question_ids, answers, score, duration_s, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+  // Idempotent: offline retries with same client_uuid insert once (O2)
+  const { rows } = await pool.query(
+    `INSERT INTO attempts (user_id, exam_code, topic_id, question_ids, answers, score, duration_s, status, client_uuid, offline_created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     ON CONFLICT (client_uuid) DO NOTHING RETURNING id`,
     [user_id, exam_code, topic_id || null, JSON.stringify(question_ids || []),
-     JSON.stringify(answers || []), score || 0, duration_s || 0, status || "done"]
+     JSON.stringify(answers || []), score || 0, duration_s || 0, status || "done",
+     client_uuid || null, offline_created_at || null]
   );
+  res.json({ ok: true, deduped: rows.length === 0 && !!client_uuid });
+});
+
+// Offline pack: all topics + questions + notes for an exam in one download (O1)
+app.get("/api/pack", async (req, res) => {
+  const { exam } = req.query;
+  const topics = await pool.query("SELECT id, exam_code, subject, name, department FROM topics WHERE exam_code=$1 ORDER BY id", [exam]);
+  const questions = await pool.query(
+    "SELECT id, exam_code, topic_id, stem, options, answer_idx, explanation, difficulty FROM questions WHERE exam_code=$1 ORDER BY id LIMIT 500",
+    [exam]
+  );
+  const notes = await pool.query(
+    "SELECT n.topic_id, n.body_md FROM notes n JOIN topics t ON t.id=n.topic_id WHERE t.exam_code=$1",
+    [exam]
+  );
+  res.json({ exam, downloaded_at: new Date().toISOString(), topics: topics.rows, questions: questions.rows, notes: notes.rows });
+});
+
+// Analytics events (PRD §8 metrics)
+app.post("/api/events", async (req, res) => {
+  const { user_id, exam_code, name, props } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+  await pool.query("INSERT INTO events (user_id, exam_code, name, props) VALUES ($1,$2,$3,$4)",
+    [user_id || "", exam_code || "", name, JSON.stringify(props || {})]);
   res.json({ ok: true });
 });
 

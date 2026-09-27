@@ -154,4 +154,4 @@ BetterMe is built as a product for the [Qubators](https://www.qubators.org/) boo
 
 ## License
 
-License to be decided.
+MIT — see [LICENSE](LICENSE). Free for every student, per the product principles.

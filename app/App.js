@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { View, Text, TextInput, Button, FlatList, TouchableOpacity, ScrollView } from "react-native";
 import { colors, spacing, type, difficultyColor } from "./theme";
 import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow } from "./components";
+import { savePack, loadPack, queueAttempt, pendingAttempts, dropQueued, pendingCount, uuid } from "./offline";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 const EXAMS = ["WAEC", "TOEFL", "SAT", "GRE"];
@@ -80,11 +81,16 @@ export default function App() {
   }, [screen, secs]);
 
   const startPractice = async (topic) => {
-    setMsg("");
-    const res = await fetch(`${API_URL}/api/questions?exam=${exam}&topic=${topic.id}&limit=10`);
-    if (!res.ok) return setMsg("Could not load practice — is the server running?");
-    const qs = await res.json();
-    if (!qs.length) return setMsg(`No questions banked for ${topic.name} yet.`);
+    setMsg(""); setOfflineMode(false);
+    let qs = null;
+    try {
+      const res = await fetch(`${API_URL}/api/questions?exam=${exam}&topic=${topic.id}&limit=10`);
+      if (!res.ok) throw new Error();
+      qs = await res.json();
+    } catch {
+      qs = packQuestions(topic.id, 10);
+    }
+    if (!qs || !qs.length) return setMsg(`No questions for ${topic.name} (bank growing).`);
     setPtopic(topic); setPq(qs); setPqi(0); setPans([]);
     setSecs(10 * 60); // standard 10Q drill, 10 min
     setStartedAt(Date.now());
@@ -100,8 +106,16 @@ export default function App() {
   };
 
   const openNotes = async (topic) => {
-    const res = await fetch(`${API_URL}/api/notes?topic=${topic.id}`);
-    setNote(res.ok ? await res.json() : { body_md: "Notes for this topic are being written." });
+    try {
+      const res = await fetch(`${API_URL}/api/notes?topic=${topic.id}`);
+      if (!res.ok) throw new Error();
+      setNote(await res.json());
+    } catch {
+      const pack = loadPack(`pack:${exam}`);
+      const n = pack?.notes?.find((x) => x.topic_id === topic.id);
+      setNote(n || { body_md: "Notes for this topic are being written." });
+      setOfflineMode(true);
+    }
     setPtopic(topic);
     setScreen("notes");
   };
@@ -113,28 +127,90 @@ export default function App() {
       body: JSON.stringify({ question_id: qid, reason: "flagged from app review" }),
     });
     setMsg("Reported — thank you. Our reviewers will check it.");
+    trackEvent("report_create", { question_id: qid });
   };
 
   // Phase 4: persist attempts, load dashboard
   const [startedAt, setStartedAt] = useState(null);
+  const [pending, setPending] = useState(0);
+  const [offlineMode, setOfflineMode] = useState(false);
+
+  const trackEvent = (name, props) => {
+    fetch(`${API_URL}/api/events`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, exam_code: exam, name, props: props || {} }),
+    }).catch(() => {});
+  };
+
   const saveAttempt = (kind, topicId, qs, ans) => {
     if (!userId) return;
     const score = ans.filter((a) => a.correct).length;
+    const payload = {
+      user_id: userId, exam_code: exam, topic_id: topicId,
+      question_ids: qs.map((q) => q.id), answers: ans.map((a) => a.picked),
+      score, duration_s: startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0,
+      status: kind, client_uuid: uuid(),
+    };
     fetch(`${API_URL}/api/attempts`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: userId, exam_code: exam, topic_id: topicId,
-        question_ids: qs.map((q) => q.id), answers: ans.map((a) => a.picked),
-        score, duration_s: startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0,
-        status: kind,
-      }),
-    }).catch(() => {});
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).then(() => setPending(pendingCount())).catch(() => {
+      queueAttempt(payload); // O2: queue offline, sync later
+      setPending(pendingCount());
+      setMsg("Saved offline — will sync when you're back online.");
+    });
+    trackEvent(kind === "diagnostic" ? "diagnostic_finish" : kind === "mock" ? "mock_finish" : "quiz_finish", { score, total: qs.length });
     return score;
+  };
+
+  const downloadPack = async () => {
+    setMsg("");
+    try {
+      const res = await fetch(`${API_URL}/api/pack?exam=${exam}`);
+      if (!res.ok) throw new Error();
+      const pack = await res.json();
+      savePack(`pack:${exam}`, pack);
+      setMsg(`Pack saved: ${pack.questions.length}Q + ${pack.notes.length} notes. Practice offline ✓`);
+    } catch {
+      setMsg("Download failed — connect once, then practice offline.");
+    }
+  };
+
+  const syncNow = async () => {
+    const items = pendingAttempts();
+    let ok = 0;
+    for (const p of items) {
+      try {
+        const res = await fetch(`${API_URL}/api/attempts`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(p),
+        });
+        if (res.ok) { dropQueued(p.client_uuid); ok += 1; }
+      } catch { break; }
+    }
+    setPending(pendingCount());
+    setMsg(ok ? `Synced ${ok} offline result${ok > 1 ? "s" : ""} ✓` : "Still offline — kept safely on device.");
+    if (ok) loadHome();
+  };
+
+  // Pack fallback: use downloaded questions when the network fails (O1)
+  const packQuestions = (topicId, limit) => {
+    const pack = loadPack(`pack:${exam}`);
+    if (!pack) return null;
+    let qs = pack.questions;
+    if (topicId) qs = qs.filter((q) => q.topic_id === topicId);
+    if (exam === "WAEC" && topics.length) {
+      const ids = new Set(topics.map((t) => t.id));
+      qs = qs.filter((q) => ids.has(q.topic_id));
+    }
+    if (!qs.length) return null;
+    setOfflineMode(true);
+    return qs.slice(0, limit);
   };
 
   const loadHome = async () => {
     if (!userId || !exam) return;
+    setPending(pendingCount());
     const q = `user=${encodeURIComponent(userId)}&exam=${exam}`;
     const [pr, pl, ba, mo, pf, ep] = await Promise.all([
       fetch(`${API_URL}/api/progress?${q}`), fetch(`${API_URL}/api/plan?${q}`),
@@ -184,6 +260,7 @@ export default function App() {
     });
     const data = res.ok ? await res.json() : { answer: "Tutor is unreachable — try your notes for now.", suggestion: null, source: "error" };
     setChat((c) => [...c, { from: "tutor", text: data.answer }]);
+    trackEvent("tutor_ask", { source: data.source });
     if (data.suggestion) setTutorCtx((ctx) => ({ ...(ctx || {}), suggestion: data.suggestion }));
     setTsending(false);
   };
@@ -257,13 +334,19 @@ export default function App() {
   }, [screen, msecs]);
 
   const startMock = async (label, count, minutes, topicId) => {
-    const url = topicId
-      ? `${API_URL}/api/questions?exam=${exam}&topic=${topicId}&limit=${count}`
-      : `${API_URL}/api/questions?exam=${exam}&limit=${count}`;
-    const res = await fetch(url);
-    if (!res.ok) return setMsg("Could not load mock.");
-    const qs = await res.json();
-    if (!qs.length) return setMsg("No questions banked yet.");
+    setOfflineMode(false);
+    let qs = null;
+    try {
+      const url = topicId
+        ? `${API_URL}/api/questions?exam=${exam}&topic=${topicId}&limit=${count}`
+        : `${API_URL}/api/questions?exam=${exam}&limit=${count}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error();
+      qs = await res.json();
+    } catch {
+      qs = packQuestions(topicId, count);
+    }
+    if (!qs || !qs.length) return setMsg("No questions banked yet.");
     setMockLabel(label); setMq(qs); setMqi(0); setMans([]);
     setMsecs(minutes * 60); setStartedAt(Date.now());
     setScreen("mockrun");
@@ -297,10 +380,16 @@ export default function App() {
   };
 
   const startDiagnostic = async () => {
-    setMsg("");
-    const res = await fetch(`${API_URL}/api/questions?exam=${exam}&limit=60`);
-    if (!res.ok) return setMsg("Could not load questions — is the server running?");
-    let all = await res.json();
+    setMsg(""); setOfflineMode(false);
+    let all = null;
+    try {
+      const res = await fetch(`${API_URL}/api/questions?exam=${exam}&limit=60`);
+      if (!res.ok) throw new Error();
+      all = await res.json();
+    } catch {
+      all = packQuestions(null, 60);
+      if (!all) return setMsg("No connection and no downloaded pack — download once to practice offline.");
+    }
     if (exam === "WAEC") {
       const ids = new Set(topics.map((t) => t.id));
       all = all.filter((q) => ids.has(q.topic_id));
@@ -718,6 +807,9 @@ export default function App() {
     <ScrollView style={{ backgroundColor: colors.bg }}>
     <View style={{ padding: 24, gap: 8 }}>
       <Text style={{ fontSize: 20, fontWeight: "700" }}>Home — {exam}{exam === "WAEC" && dept ? ` · ${dept}` : ""}</Text>
+      {offlineMode ? <Badge label="OFFLINE MODE" color={colors.text} /> : null}
+      <Button title="⬇ Download pack for offline" onPress={downloadPack} />
+      {pending > 0 ? <Button title={`⬆ Sync ${pending} offline result${pending > 1 ? "s" : ""}`} onPress={syncNow} /> : null}
       {daysLeft !== null ? <Card><Text style={{ fontWeight: "800" }}>⏳ {daysLeft} days to exam{dash.eprog.target ? ` · target ${dash.eprog.target}` : ""}</Text></Card> : null}
       <Button title="Start diagnostic test" onPress={startDiagnostic} />
       <Button title="Full mock exam" onPress={() => setScreen("mocksetup")} />

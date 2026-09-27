@@ -84,6 +84,18 @@ CREATE TABLE IF NOT EXISTS post_answers (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Phase 7: offline sync idempotency + analytics
+ALTER TABLE attempts ADD COLUMN IF NOT EXISTS client_uuid TEXT UNIQUE;
+
+CREATE TABLE IF NOT EXISTS events (
+  id SERIAL PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT '',
+  exam_code TEXT NOT NULL DEFAULT '',
+  name TEXT NOT NULL,
+  props JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS attempts (
   id SERIAL PRIMARY KEY,
   user_id TEXT NOT NULL,
