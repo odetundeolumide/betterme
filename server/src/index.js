@@ -269,4 +269,77 @@ app.post("/api/tutor/ask", async (req, res) => {
   res.json({ answer: data.choices?.[0]?.message?.content || "", suggestion: ctx.suggestion, source: "llm" });
 });
 
+// ---- Phase 6: community (C1/C2) + leaderboard (C3) ----
+
+const mask = (u) => (u && u.includes("@") ? u[0] + "***@" + u.split("@")[1] : String(u || "?").slice(0, 6) + "***");
+
+// One shared feed, exam/topic tags as filters (C1)
+app.get("/api/posts", async (req, res) => {
+  const { exam, topic } = req.query;
+  const { rows } = await pool.query(
+    `SELECT p.id, p.user_id, p.exam_code, p.topic_id, t.name AS topic_name, p.title, p.created_at,
+            (SELECT COUNT(*)::int FROM post_answers a WHERE a.post_id=p.id AND NOT a.hidden) AS answers
+     FROM posts p LEFT JOIN topics t ON t.id=p.topic_id
+     WHERE NOT p.hidden
+       AND ($1::text IS NULL OR $1 = '' OR p.exam_code = $1 OR p.exam_code = '')
+       AND ($2::int IS NULL OR p.topic_id = $2)
+     ORDER BY p.created_at DESC LIMIT 50`,
+    [exam || null, topic || null]
+  );
+  res.json(rows.map((r) => ({ ...r, user_id: mask(r.user_id) })));
+});
+
+app.post("/api/posts", async (req, res) => {
+  const { user_id, exam_code, topic_id, title, body } = req.body || {};
+  if (!user_id || !title) return res.status(400).json({ error: "user_id + title required" });
+  const { rows } = await pool.query(
+    "INSERT INTO posts (user_id, exam_code, topic_id, title, body) VALUES ($1,$2,$3,$4,$5) RETURNING id, created_at",
+    [user_id, exam_code || "", topic_id || null, title, body || ""]
+  );
+  res.json({ ok: true, ...rows[0] });
+});
+
+app.get("/api/posts/:id", async (req, res) => {
+  const p = await pool.query("SELECT * FROM posts WHERE id=$1 AND NOT hidden", [req.params.id]);
+  if (!p.rows.length) return res.status(404).json({ error: "not found" });
+  const a = await pool.query("SELECT id, user_id, body, is_accepted, created_at FROM post_answers WHERE post_id=$1 AND NOT hidden ORDER BY is_accepted DESC, created_at", [req.params.id]);
+  res.json({ ...p.rows[0], user_id: mask(p.rows[0].user_id), answers: a.rows.map((x) => ({ ...x, user_id: mask(x.user_id) })) });
+});
+
+app.post("/api/posts/:id/answers", async (req, res) => {
+  const { user_id, body } = req.body || {};
+  if (!user_id || !body) return res.status(400).json({ error: "user_id + body required" });
+  await pool.query("INSERT INTO post_answers (post_id, user_id, body) VALUES ($1,$2,$3)", [req.params.id, user_id, body]);
+  res.json({ ok: true });
+});
+
+// Accept answer (only the asker)
+app.post("/api/posts/:id/accept", async (req, res) => {
+  const { answer_id, user_id } = req.body || {};
+  const p = await pool.query("SELECT user_id FROM posts WHERE id=$1", [req.params.id]);
+  if (!p.rows.length || p.rows[0].user_id !== user_id) return res.status(403).json({ error: "only the asker can accept" });
+  await pool.query("UPDATE post_answers SET is_accepted=FALSE WHERE post_id=$1", [req.params.id]);
+  await pool.query("UPDATE post_answers SET is_accepted=TRUE WHERE id=$1 AND post_id=$2", [answer_id, req.params.id]);
+  res.json({ ok: true });
+});
+
+// Report → auto-hide after 3 (moderation v1)
+app.post("/api/posts/:id/report", async (req, res) => {
+  await pool.query("UPDATE posts SET reports = reports + 1, hidden = (reports + 1) >= 3 WHERE id=$1", [req.params.id]);
+  res.json({ ok: true });
+});
+
+// Leaderboard by quiz scores, exam-filtered by default (C3)
+app.get("/api/leaderboard", async (req, res) => {
+  const { exam, user } = req.query;
+  const { rows } = await pool.query(
+    `SELECT user_id, SUM(score)::int AS total, COUNT(*)::int AS quizzes
+     FROM attempts WHERE exam_code=$1 GROUP BY user_id ORDER BY total DESC LIMIT 20`,
+    [exam]
+  );
+  const board = rows.map((r, i) => ({ rank: i + 1, user: mask(r.user_id), total: r.total, quizzes: r.quizzes, you: r.user_id === user }));
+  const me = board.find((b) => b.you) || null;
+  res.json({ board, me });
+});
+
 app.listen(PORT, () => console.log(`betterme-server on http://localhost:${PORT}`));

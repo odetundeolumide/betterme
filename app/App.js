@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { View, Text, TextInput, Button, FlatList, TouchableOpacity, ScrollView } from "react-native";
 import { colors, spacing, type, difficultyColor } from "./theme";
-import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble } from "./components";
+import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow } from "./components";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 const EXAMS = ["WAEC", "TOEFL", "SAT", "GRE"];
@@ -187,6 +187,59 @@ export default function App() {
     if (data.suggestion) setTutorCtx((ctx) => ({ ...(ctx || {}), suggestion: data.suggestion }));
     setTsending(false);
   };
+  // Community state (C1–C3)
+  const [posts, setPosts] = useState([]);
+  const [postDetail, setPostDetail] = useState(null);
+  const [newTitle, setNewTitle] = useState("");
+  const [newBody, setNewBody] = useState("");
+  const [answerBody, setAnswerBody] = useState("");
+  const [board, setBoard] = useState({ board: [], me: null });
+
+  const loadPosts = async () => {
+    const res = await fetch(`${API_URL}/api/posts?exam=${exam}`);
+    setPosts(res.ok ? await res.json() : []);
+    setScreen("community");
+  };
+
+  const openPost = async (id) => {
+    const res = await fetch(`${API_URL}/api/posts/${id}`);
+    if (res.ok) { setPostDetail(await res.json()); setScreen("post"); }
+  };
+
+  const submitPost = async () => {
+    if (!newTitle.trim()) return;
+    await fetch(`${API_URL}/api/posts`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, exam_code: exam, title: newTitle, body: newBody }),
+    });
+    setNewTitle(""); setNewBody("");
+    loadPosts();
+  };
+
+  const submitAnswer = async () => {
+    if (!answerBody.trim()) return;
+    await fetch(`${API_URL}/api/posts/${postDetail.id}/answers`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, body: answerBody }),
+    });
+    setAnswerBody("");
+    openPost(postDetail.id);
+  };
+
+  const acceptAnswer = async (aid) => {
+    await fetch(`${API_URL}/api/posts/${postDetail.id}/accept`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answer_id: aid, user_id: userId }),
+    });
+    openPost(postDetail.id);
+  };
+
+  const loadBoard = async () => {
+    const res = await fetch(`${API_URL}/api/leaderboard?exam=${exam}&user=${encodeURIComponent(userId)}`);
+    if (res.ok) setBoard(await res.json());
+    setScreen("board");
+  };
+
   const [mockLabel, setMockLabel] = useState("");
   const [mq, setMq] = useState([]);
   const [mqi, setMqi] = useState(0);
@@ -494,6 +547,72 @@ export default function App() {
     );
   }
 
+  if (screen === "community") {
+    return (
+      <ScrollView style={{ backgroundColor: colors.bg }}>
+        <View style={{ padding: spacing.lg }}>
+          <Text style={type.h1}>Community — {exam}</Text>
+          <Text style={{ color: colors.muted }}>One shared feed, filtered by exam.</Text>
+          <SectionTitle>Ask a question</SectionTitle>
+          <TextInput value={newTitle} onChangeText={setNewTitle} placeholder="Title, e.g. Why is (x−2)(x−3)=0?" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8 }} />
+          <TextInput value={newBody} onChangeText={setNewBody} placeholder="Details (optional)" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8, marginTop: spacing.sm }} />
+          <Btn title="Post" onPress={submitPost} />
+          <SectionTitle>Questions</SectionTitle>
+          {posts.length === 0 ? <Text style={{ color: colors.muted }}>No questions yet — be the first.</Text> : null}
+          {posts.map((p) => (
+            <TouchableOpacity key={p.id} onPress={() => openPost(p.id)}>
+              <Card>
+                <Text style={{ fontWeight: "700" }}>{p.title}</Text>
+                <Text style={{ color: colors.muted }}>{p.user_id} · {p.topic_name || p.exam_code} · {p.answers} answers</Text>
+              </Card>
+            </TouchableOpacity>
+          ))}
+          <Btn title="🏆 Leaderboard" onPress={loadBoard} />
+          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+        </View>
+      </ScrollView>
+    );
+  }
+
+  if (screen === "post" && postDetail) {
+    return (
+      <ScrollView style={{ backgroundColor: colors.bg }}>
+        <View style={{ padding: spacing.lg }}>
+          <Text style={type.h1}>{postDetail.title}</Text>
+          <Text style={{ color: colors.muted }}>{postDetail.user_id} · {postDetail.topic_name || postDetail.exam_code}</Text>
+          {postDetail.body ? <Card><Text>{postDetail.body}</Text></Card> : null}
+          <SectionTitle>Answers ({postDetail.answers.length})</SectionTitle>
+          {postDetail.answers.map((a) => (
+            <Card key={a.id} accent={a.is_accepted ? colors.success : colors.border}>
+              <Text>{a.is_accepted ? "✅ " : ""}{a.body}</Text>
+              <Text style={{ color: colors.muted }}>— {a.user_id}</Text>
+              {!a.is_accepted ? <Btn title="Accept ✓" variant="ghost" onPress={() => acceptAnswer(a.id)} /> : null}
+            </Card>
+          ))}
+          <TextInput value={answerBody} onChangeText={setAnswerBody} placeholder="Write your answer…" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8 }} />
+          <Btn title="Answer" onPress={submitAnswer} />
+          <Btn title="🚩 Report post" variant="ghost" onPress={() => fetch(`${API_URL}/api/posts/${postDetail.id}/report`, { method: "POST" }).then(() => setScreen("community"))} />
+          <Btn title="← Back" variant="ghost" onPress={loadPosts} />
+        </View>
+      </ScrollView>
+    );
+  }
+
+  if (screen === "board") {
+    return (
+      <ScrollView style={{ backgroundColor: colors.bg }}>
+        <View style={{ padding: spacing.lg }}>
+          <Text style={type.h1}>🏆 Leaderboard — {exam}</Text>
+          {board.board.length === 0 ? <Text style={{ color: colors.muted }}>No quiz scores yet. Finish a quiz to rank.</Text> : null}
+          {board.board.map((b) => (
+            <LeaderRow key={b.rank} rank={b.rank} name={b.user} score={`${b.total} pts · ${b.quizzes} quizzes`} you={b.you} />
+          ))}
+          <Btn title="← Back" variant="ghost" onPress={() => setScreen("community")} />
+        </View>
+      </ScrollView>
+    );
+  }
+
   if (screen === "mocksetup") {
     const mockOptions = () => {
       if (!spec) return [];
@@ -618,6 +737,7 @@ export default function App() {
       {dash.prefs.reminder_time ? <Text style={{ color: colors.muted }}>🔔 Reminder at {dash.prefs.reminder_time} ✓</Text> : null}
       {weakNote ? <Button title={`📝 Notes: ${weakNote.name} (weakest)`} onPress={() => openNotes(weakNote)} /> : null}
       <Button title="Ask AI tutor" onPress={() => openTutor(null)} />
+      <Button title="Community Q&A" onPress={loadPosts} />
       <Button title="View design system" onPress={() => setScreen("design")} />
       <Button title="⚙ Settings (date, target, reminder)" onPress={() => setScreen("settings")} />
       {msg ? <Text>{msg}</Text> : null}

@@ -60,6 +60,30 @@ CREATE TABLE IF NOT EXISTS user_prefs (
   reminder_time TEXT NOT NULL DEFAULT ''
 );
 
+-- Phase 6: community (C1/C2) + moderation
+CREATE TABLE IF NOT EXISTS posts (
+  id SERIAL PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  exam_code TEXT NOT NULL DEFAULT '',
+  topic_id INT REFERENCES topics(id),
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  reports INT NOT NULL DEFAULT 0,
+  hidden BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS post_answers (
+  id SERIAL PRIMARY KEY,
+  post_id INT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL,
+  body TEXT NOT NULL,
+  is_accepted BOOLEAN NOT NULL DEFAULT FALSE,
+  reports INT NOT NULL DEFAULT 0,
+  hidden BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS attempts (
   id SERIAL PRIMARY KEY,
   user_id TEXT NOT NULL,
