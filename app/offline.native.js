@@ -1,14 +1,11 @@
-// Offline store (O1/O2): exam packs + queued attempts. SQLite with memory fallback.
-// Web has no SQLite → memory store (syncs when online).
-import { Platform } from "react-native";
+// Native build: SQLite store with memory fallback.
+// SQLite opens lazily on first use — never at import time.
 let db = null;
 let tried = false;
 const mem = { packs: {}, queue: [] };
 
-// Lazily opened on first use — never at import time, so a storage
-// failure can never break app startup ("App entry not found").
 function ensureDb() {
-  if (tried || Platform.OS === "web") return db;
+  if (tried) return db;
   tried = true;
   try {
     const SQLite = require("expo-sqlite");
