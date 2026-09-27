@@ -104,7 +104,7 @@ Qubator/
 └── doc/
     ├── betterme-project-brief.md
     ├── exam-prep-companion-app-features.md
-    ├── exam-prep-companion-app-prd.md
+    ├── PRD.md
     └── implementation-plan.md
 ```
 
@@ -112,7 +112,7 @@ Qubator/
 
 * `doc/betterme-project-brief.md` — overview, problem, solution, scope
 * `doc/exam-prep-companion-app-features.md` — full feature list (accounts, diagnostic, practice, notes, mocks, plan, home, tutor, community, offline)
-* `doc/exam-prep-companion-app-prd.md` — requirements (A1–O3), journey, principles, metrics, risks
+* `doc/PRD.md` — requirements (A1–O3), journey, principles, metrics, risks
 
 ## Getting Started (Phase 0 scaffold)
 
@@ -141,7 +141,7 @@ npx expo start
 Docs first:
 
 1. Read `doc/betterme-project-brief.md`
-2. Read `doc/exam-prep-companion-app-prd.md`
+2. Read `doc/PRD.md`
 3. Confirm open questions in PRD §10 (target student, leaderboard filter, moderation, metric targets) before building.
 
 ## Contributing

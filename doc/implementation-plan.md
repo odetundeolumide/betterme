@@ -1,6 +1,6 @@
 # BetterMe — Implementation Plan (Phased)
 
-Source: `doc/exam-prep-companion-app-prd.md` (Draft v1, Sep 20 2026), `doc/exam-prep-companion-app-features.md`, `doc/betterme-project-brief.md`.
+Source: `doc/PRD.md` (Draft v1, Sep 20 2026), `doc/exam-prep-companion-app-features.md`, `doc/betterme-project-brief.md`.
 Repo state: docs-only. This plan covers all requirements A1–O3.
 
 ## 0. Decisions & Stack (confirm before Phase 1)
