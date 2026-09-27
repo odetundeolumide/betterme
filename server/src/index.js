@@ -77,4 +77,122 @@ app.post("/api/reports", async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Phase 4: attempts, progress, plan, mocks, prefs ----
+
+// Save a finished quiz/diagnostic/practice (G1 source data)
+app.post("/api/attempts", async (req, res) => {
+  const { user_id, exam_code, topic_id, question_ids, answers, score, duration_s, status } = req.body || {};
+  if (!user_id || !exam_code) return res.status(400).json({ error: "user_id + exam_code required" });
+  await pool.query(
+    `INSERT INTO attempts (user_id, exam_code, topic_id, question_ids, answers, score, duration_s, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [user_id, exam_code, topic_id || null, JSON.stringify(question_ids || []),
+     JSON.stringify(answers || []), score || 0, duration_s || 0, status || "done"]
+  );
+  res.json({ ok: true });
+});
+
+// Per-topic progress across attempts (G1)
+app.get("/api/progress", async (req, res) => {
+  const { user, exam } = req.query;
+  const { rows } = await pool.query(
+    `SELECT a.topic_id, t.name, COUNT(*) AS n,
+            SUM((a.score::float / NULLIF(jsonb_array_length(a.question_ids),0))) AS rate_sum
+     FROM attempts a LEFT JOIN topics t ON t.id = a.topic_id
+     WHERE a.user_id = $1 AND a.exam_code = $2 AND a.topic_id IS NOT NULL
+     GROUP BY a.topic_id, t.name`,
+    [user, exam]
+  );
+  res.json(rows.map((r) => ({ topic_id: r.topic_id, name: r.name, attempts: +r.n, avg: +(r.rate_sum / r.n).toFixed(2) })));
+});
+
+// Weekly plan: fix 3 weakest topics, auto-updates from latest data (G2/G3)
+app.get("/api/plan", async (req, res) => {
+  const { user, exam } = req.query;
+  const { rows } = await pool.query(
+    `SELECT a.topic_id, t.name,
+            AVG(a.score::float / NULLIF(jsonb_array_length(a.question_ids),0)) AS avg,
+            COUNT(*) AS n
+     FROM attempts a LEFT JOIN topics t ON t.id = a.topic_id
+     WHERE a.user_id = $1 AND a.exam_code = $2 AND a.topic_id IS NOT NULL
+     GROUP BY a.topic_id, t.name ORDER BY avg ASC NULLS FIRST LIMIT 3`,
+    [user, exam]
+  );
+  res.json(rows.map((r) => ({ topic_id: r.topic_id, name: r.name, avg: r.avg === null ? null : +(+r.avg).toFixed(2), drills: 3 })));
+});
+
+// Mock results: save + list for comparison (M1/M2)
+app.post("/api/mocks", async (req, res) => {
+  const { user_id, exam_code, label, score, total, breakdown } = req.body || {};
+  if (!user_id || !exam_code) return res.status(400).json({ error: "user_id + exam_code required" });
+  const { rows } = await pool.query(
+    `INSERT INTO mock_results (user_id, exam_code, label, score, total, breakdown)
+     VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, taken_at`,
+    [user_id, exam_code, label || "", score || 0, total || 0, JSON.stringify(breakdown || {})]
+  );
+  res.json({ ok: true, ...rows[0] });
+});
+
+app.get("/api/mocks", async (req, res) => {
+  const { user, exam } = req.query;
+  const { rows } = await pool.query(
+    "SELECT id, label, score, total, breakdown, taken_at FROM mock_results WHERE user_id=$1 AND exam_code=$2 ORDER BY taken_at DESC LIMIT 10",
+    [user, exam]
+  );
+  res.json(rows);
+});
+
+// Exam date + target (H5)
+app.put("/api/exam-progress", async (req, res) => {
+  const { user_id, exam_code, exam_date, target } = req.body || {};
+  if (!user_id || !exam_code) return res.status(400).json({ error: "user_id + exam_code required" });
+  await pool.query(
+    `INSERT INTO exam_progress (user_id, exam_code, exam_date, target) VALUES ($1,$2,$3,$4)
+     ON CONFLICT (user_id, exam_code) DO UPDATE SET exam_date=EXCLUDED.exam_date, target=EXCLUDED.target`,
+    [user_id, exam_code, exam_date || null, target || ""]
+  );
+  res.json({ ok: true });
+});
+
+app.get("/api/exam-progress", async (req, res) => {
+  const { user, exam } = req.query;
+  const { rows } = await pool.query("SELECT exam_date, target FROM exam_progress WHERE user_id=$1 AND exam_code=$2", [user, exam]);
+  res.json(rows[0] || {});
+});
+
+// Reminder time (G4 — stored; native push comes later)
+app.put("/api/prefs", async (req, res) => {
+  const { user_id, reminder_time } = req.body || {};
+  if (!user_id) return res.status(400).json({ error: "user_id required" });
+  await pool.query(
+    "INSERT INTO user_prefs (user_id, reminder_time) VALUES ($1,$2) ON CONFLICT (user_id) DO UPDATE SET reminder_time=EXCLUDED.reminder_time",
+    [user_id, reminder_time || ""]
+  );
+  res.json({ ok: true });
+});
+
+app.get("/api/prefs", async (req, res) => {
+  const { rows } = await pool.query("SELECT reminder_time FROM user_prefs WHERE user_id=$1", [req.query.user]);
+  res.json(rows[0] || {});
+});
+
+// Badges from real data (G5): first diagnostic, topic 80%+, first mock, mock 70%+
+app.get("/api/badges", async (req, res) => {
+  const { user, exam } = req.query;
+  const badges = [];
+  const at = await pool.query("SELECT COUNT(*)::int AS c FROM attempts WHERE user_id=$1 AND exam_code=$2", [user, exam]);
+  if (at.rows[0].c > 0) badges.push("🎯 Diagnostic done");
+  const hi = await pool.query(
+    `SELECT t.name FROM attempts a JOIN topics t ON t.id=a.topic_id
+     WHERE a.user_id=$1 AND a.exam_code=$2 AND jsonb_array_length(a.question_ids)>0
+     GROUP BY t.name HAVING MAX(a.score::float/jsonb_array_length(a.question_ids))>=0.8 LIMIT 5`,
+    [user, exam]
+  );
+  hi.rows.forEach((r) => badges.push(`🏅 ${r.name} 80%+`));
+  const mk = await pool.query("SELECT COUNT(*)::int AS c, MAX(score::float/NULLIF(total,0)) AS best FROM mock_results WHERE user_id=$1 AND exam_code=$2", [user, exam]);
+  if (mk.rows[0].c > 0) badges.push("📝 First mock");
+  if (mk.rows[0].best !== null && +mk.rows[0].best >= 0.7) badges.push("🚀 Mock 70%+");
+  res.json(badges);
+});
+
 app.listen(PORT, () => console.log(`betterme-server on http://localhost:${PORT}`));

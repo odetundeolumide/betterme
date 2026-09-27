@@ -35,6 +35,31 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Phase 4: mocks, per-exam progress, prefs
+CREATE TABLE IF NOT EXISTS mock_results (
+  id SERIAL PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  exam_code TEXT NOT NULL,
+  label TEXT NOT NULL DEFAULT '',
+  score INT NOT NULL DEFAULT 0,
+  total INT NOT NULL DEFAULT 0,
+  breakdown JSONB NOT NULL DEFAULT '{}',
+  taken_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS exam_progress (
+  user_id TEXT NOT NULL,
+  exam_code TEXT NOT NULL,
+  exam_date DATE,
+  target TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (user_id, exam_code)
+);
+
+CREATE TABLE IF NOT EXISTS user_prefs (
+  user_id TEXT PRIMARY KEY,
+  reminder_time TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS attempts (
   id SERIAL PRIMARY KEY,
   user_id TEXT NOT NULL,

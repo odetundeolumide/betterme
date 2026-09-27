@@ -13,6 +13,10 @@ export default function App() {
   const [exam, setExam] = useState(null);
   const [dept, setDept] = useState(null);
   const [topics, setTopics] = useState([]);
+  const [userId, setUserId] = useState(null);
+  const [spec, setSpec] = useState(null);
+  // Home dashboard data (Phase 4: H3/H4/H5, G1-G5)
+  const [dash, setDash] = useState({ progress: [], plan: [], badges: [], mocks: [], prefs: {}, eprog: {}, lastScore: null });
   const [msg, setMsg] = useState("");
   // Diagnostic state (PRD D1–D6, adaptive D3, pause/resume D4)
   const [quiz, setQuiz] = useState([]);
@@ -30,14 +34,19 @@ export default function App() {
       body: JSON.stringify({ email, password, name: email }),
     });
     if (!res.ok) return setMsg(`Auth failed (${res.status})`);
+    setUserId(email);
     setScreen("exams");
   };
 
   const pickExam = async (code) => {
     setExam(code);
     setDept(null);
-    const res = await fetch(`${API_URL}/api/topics?exam=${code}`);
-    const all = res.ok ? await res.json() : [];
+    const [tr, sr] = await Promise.all([
+      fetch(`${API_URL}/api/topics?exam=${code}`),
+      fetch(`${API_URL}/api/specs/${code}`),
+    ]);
+    const all = tr.ok ? await tr.json() : [];
+    setSpec(sr.ok ? await sr.json() : null);
     if (code === "WAEC") {
       setTopics(all);
       setScreen("dept");
@@ -78,6 +87,7 @@ export default function App() {
     if (!qs.length) return setMsg(`No questions banked for ${topic.name} yet.`);
     setPtopic(topic); setPq(qs); setPqi(0); setPans([]);
     setSecs(10 * 60); // standard 10Q drill, 10 min
+    setStartedAt(Date.now());
     setScreen("practice");
   };
 
@@ -85,7 +95,7 @@ export default function App() {
     const q = pq[pqi];
     const next = [...pans, { q, picked: idx, correct: idx === q.answer_idx }];
     setPans(next);
-    if (pqi + 1 >= pq.length) setScreen("review");
+    if (pqi + 1 >= pq.length) { saveAttempt("practice", ptopic.id, pq, next); setScreen("review"); }
     else setPqi(pqi + 1);
   };
 
@@ -105,6 +115,103 @@ export default function App() {
     setMsg("Reported — thank you. Our reviewers will check it.");
   };
 
+  // Phase 4: persist attempts, load dashboard
+  const [startedAt, setStartedAt] = useState(null);
+  const saveAttempt = (kind, topicId, qs, ans) => {
+    if (!userId) return;
+    const score = ans.filter((a) => a.correct).length;
+    fetch(`${API_URL}/api/attempts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: userId, exam_code: exam, topic_id: topicId,
+        question_ids: qs.map((q) => q.id), answers: ans.map((a) => a.picked),
+        score, duration_s: startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0,
+        status: kind,
+      }),
+    }).catch(() => {});
+    return score;
+  };
+
+  const loadHome = async () => {
+    if (!userId || !exam) return;
+    const q = `user=${encodeURIComponent(userId)}&exam=${exam}`;
+    const [pr, pl, ba, mo, pf, ep] = await Promise.all([
+      fetch(`${API_URL}/api/progress?${q}`), fetch(`${API_URL}/api/plan?${q}`),
+      fetch(`${API_URL}/api/badges?${q}`), fetch(`${API_URL}/api/mocks?${q}`),
+      fetch(`${API_URL}/api/prefs?user=${encodeURIComponent(userId)}`),
+      fetch(`${API_URL}/api/exam-progress?${q}`),
+    ]);
+    setDash({
+      progress: pr.ok ? await pr.json() : [],
+      plan: pl.ok ? await pl.json() : [],
+      badges: ba.ok ? await ba.json() : [],
+      mocks: mo.ok ? await mo.json() : [],
+      prefs: pf.ok ? await pf.json() : {},
+      eprog: ep.ok ? await ep.json() : {},
+      lastScore: null,
+    });
+  };
+
+  useEffect(() => { if (screen === "home") loadHome(); }, [screen]);
+
+  // Mock state (M1/M2) — full standard counts from specs
+  const [mockLabel, setMockLabel] = useState("");
+  const [mq, setMq] = useState([]);
+  const [mqi, setMqi] = useState(0);
+  const [mans, setMans] = useState([]);
+  const [msecs, setMsecs] = useState(0);
+  const [mprev, setMprev] = useState(null);
+
+  useEffect(() => {
+    if (screen !== "mockrun" || msecs <= 0) return;
+    const t = setTimeout(() => {
+      if (msecs === 1) finishMock(mans);
+      else setMsecs(msecs - 1);
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [screen, msecs]);
+
+  const startMock = async (label, count, minutes, topicId) => {
+    const url = topicId
+      ? `${API_URL}/api/questions?exam=${exam}&topic=${topicId}&limit=${count}`
+      : `${API_URL}/api/questions?exam=${exam}&limit=${count}`;
+    const res = await fetch(url);
+    if (!res.ok) return setMsg("Could not load mock.");
+    const qs = await res.json();
+    if (!qs.length) return setMsg("No questions banked yet.");
+    setMockLabel(label); setMq(qs); setMqi(0); setMans([]);
+    setMsecs(minutes * 60); setStartedAt(Date.now());
+    setScreen("mockrun");
+  };
+
+  const answerMock = (idx) => {
+    const q = mq[mqi];
+    const next = [...mans, { q, picked: idx, correct: idx === q.answer_idx }];
+    setMans(next);
+    if (mqi + 1 >= mq.length) finishMock(next);
+    else setMqi(mqi + 1);
+  };
+
+  const finishMock = async (ans) => {
+    const score = ans.filter((a) => a.correct).length;
+    const prev = dash.mocks[0] || null;
+    setMprev(prev);
+    if (userId) {
+      await fetch(`${API_URL}/api/mocks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId, exam_code: exam, label: mockLabel,
+          score, total: ans.length,
+          breakdown: { perQuestion: ans.map((a) => (a.correct ? 1 : 0)) },
+        }),
+      }).catch(() => {});
+      saveAttempt("mock", ans[0] ? ans[0].q.topic_id : null, ans.map((a) => a.q), ans);
+    }
+    setScreen("mockresult");
+  };
+
   const startDiagnostic = async () => {
     setMsg("");
     const res = await fetch(`${API_URL}/api/questions?exam=${exam}&limit=60`);
@@ -118,6 +225,7 @@ export default function App() {
     const byDiff = (d) => all.filter((q) => q.difficulty === d);
     const ordered = [...byDiff(2), ...byDiff(1), ...byDiff(3)].slice(0, 10);
     setQuiz(ordered); setQi(0); setAnswers([]); setTarget(2); setStreak(0);
+    setStartedAt(Date.now());
     setScreen("quiz");
   };
 
@@ -131,7 +239,7 @@ export default function App() {
     setTarget(t);
     const next = [...answers, { q, picked: idx, correct }];
     setAnswers(next);
-    if (qi + 1 >= quiz.length) setScreen("results");
+    if (qi + 1 >= quiz.length) { saveAttempt("diagnostic", null, quiz, next); setScreen("results"); }
     else setQi(qi + 1);
   };
 
@@ -322,15 +430,134 @@ export default function App() {
     );
   }
 
+  if (screen === "mocksetup") {
+    const mockOptions = () => {
+      if (!spec) return [];
+      if (exam === "WAEC") {
+        const per = spec.subjects || {};
+        return topics.map((t) => {
+          const s = per[t.subject] || per.default || { questions: 50, minutes: 60 };
+          return { label: `${t.name} · ${s.questions}Q standard`, count: s.questions, minutes: s.minutes, topicId: t.id };
+        });
+      }
+      const total = spec.total || { questions: 20, minutes: 30 };
+      return [{ label: `Full paper · ${total.questions}Q in ${total.minutes} min`, count: total.questions, minutes: total.minutes, topicId: null }];
+    };
+    return (
+      <ScrollView style={{ backgroundColor: colors.bg }}>
+        <View style={{ padding: spacing.lg }}>
+          <Text style={type.h1}>Mock exam — {exam}</Text>
+          <Text style={{ color: colors.muted }}>Standard counts. Bank shortfall will be shown.</Text>
+          {mockOptions().map((o) => (
+            <Btn key={o.label} title={o.label} onPress={() => startMock(o.label, o.count, o.minutes, o.topicId)} />
+          ))}
+          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+          {msg ? <Text>{msg}</Text> : null}
+        </View>
+      </ScrollView>
+    );
+  }
+
+  if (screen === "mockrun" && mq[mqi]) {
+    const q = mq[mqi];
+    const opts = typeof q.options === "string" ? JSON.parse(q.options) : q.options;
+    const mm = String(Math.floor(msecs / 60)).padStart(2, "0");
+    const ss = String(msecs % 60).padStart(2, "0");
+    return (
+      <ScrollView style={{ backgroundColor: colors.bg }}>
+        <View style={{ padding: spacing.lg }}>
+          <Text style={type.h2}>{mockLabel}</Text>
+          <Text style={{ fontWeight: "800" }}>Q{mqi + 1}/{mq.length} · ⏱ {mm}:{ss}</Text>
+          <ProgressBar value={mqi / mq.length} color={colors.danger} />
+          <Card><Text style={{ fontSize: 16, fontWeight: "700" }}>{q.stem}</Text></Card>
+          {opts.map((o, i) => (
+            <Btn key={i} title={o} variant="ghost" onPress={() => answerMock(i)} />
+          ))}
+        </View>
+      </ScrollView>
+    );
+  }
+
+  if (screen === "mockresult") {
+    const score = mans.filter((a) => a.correct).length;
+    const delta = mprev ? score / mans.length - mprev.score / Math.max(mprev.total, 1) : null;
+    return (
+      <ScrollView style={{ backgroundColor: colors.bg }}>
+        <View style={{ padding: spacing.lg }}>
+          <Text style={type.h1}>Mock: {score}/{mans.length}</Text>
+          {mprev ? (
+            <Card>
+              <Text>Previous: {mprev.score}/{mprev.total} ({mprev.label})</Text>
+              <Text style={{ fontWeight: "800", color: delta >= 0 ? colors.success : colors.danger }}>
+                {delta >= 0 ? "▲ improving" : "▼ slipped"} ({(delta * 100).toFixed(0)} pts)
+              </Text>
+            </Card>
+          ) : <Text style={{ color: colors.muted }}>First mock — this is your baseline.</Text>}
+          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+        </View>
+      </ScrollView>
+    );
+  }
+
+  if (screen === "progress") {
+    return (
+      <ScrollView style={{ backgroundColor: colors.bg }}>
+        <View style={{ padding: spacing.lg }}>
+          <Text style={type.h1}>Progress — {exam}</Text>
+          {dash.progress.length === 0 ? <Text style={{ color: colors.muted }}>No attempts yet. Take the diagnostic first.</Text> : null}
+          {dash.progress.map((p) => (
+            <Card key={p.topic_id}>
+              <Text style={{ fontWeight: "700" }}>{p.name} · {p.attempts} tries · avg {(p.avg * 100).toFixed(0)}%</Text>
+              <ProgressBar value={p.avg} color={p.avg >= 0.6 ? colors.success : colors.danger} />
+            </Card>
+          ))}
+          <Text style={type.h2}>Mocks</Text>
+          {dash.mocks.map((m) => (
+            <Text key={m.id}>- {m.label}: {m.score}/{m.total}</Text>
+          ))}
+          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+        </View>
+      </ScrollView>
+    );
+  }
+
+  if (screen === "settings") {
+    return <SettingsScreen api={API_URL} userId={userId} exam={exam} dash={dash} onSaved={() => setScreen("home")} />;
+  }
+
+  const daysLeft = (() => {
+    if (!dash.eprog.exam_date) return null;
+    return Math.ceil((new Date(dash.eprog.exam_date) - new Date()) / 86400000);
+  })();
+  const weakNote = dash.plan[0] ? topics.find((t) => t.id === dash.plan[0].topic_id) : null;
+
   return (
+    <ScrollView style={{ backgroundColor: colors.bg }}>
     <View style={{ padding: 24, gap: 8 }}>
       <Text style={{ fontSize: 20, fontWeight: "700" }}>Home — {exam}{exam === "WAEC" && dept ? ` · ${dept}` : ""}</Text>
+      {daysLeft !== null ? <Card><Text style={{ fontWeight: "800" }}>⏳ {daysLeft} days to exam{dash.eprog.target ? ` · target ${dash.eprog.target}` : ""}</Text></Card> : null}
       <Button title="Start diagnostic test" onPress={startDiagnostic} />
+      <Button title="Full mock exam" onPress={() => setScreen("mocksetup")} />
+      <Button title="My progress" onPress={() => setScreen("progress")} />
       {draft ? <Button title="Continue where you left off" onPress={() => { setQuiz(draft.quiz); setQi(draft.qi); setAnswers(draft.answers); setTarget(draft.target); setStreak(draft.streak); setScreen("quiz"); }} /> : null}
+      {dash.plan.length > 0 ? (
+        <Card accent={colors.success}>
+          <Text style={{ fontWeight: "800" }}>This week 🎯 fix weakest:</Text>
+          {dash.plan.map((p) => <Text key={p.topic_id}>- {p.name} ×{p.drills} drills</Text>)}
+        </Card>
+      ) : null}
+      {dash.badges.length > 0 ? (
+        <View style={{ flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" }}>
+          {dash.badges.map((b) => <Badge key={b} label={b} />)}
+        </View>
+      ) : null}
+      {dash.prefs.reminder_time ? <Text style={{ color: colors.muted }}>🔔 Reminder at {dash.prefs.reminder_time} ✓</Text> : null}
+      {weakNote ? <Button title={`📝 Notes: ${weakNote.name} (weakest)`} onPress={() => openNotes(weakNote)} /> : null}
       <Button title="Ask AI tutor" onPress={() => setMsg("Tutor arrives in Phase 5.")} />
       <Button title="View design system" onPress={() => setScreen("design")} />
+      <Button title="⚙ Settings (date, target, reminder)" onPress={() => setScreen("settings")} />
       {msg ? <Text>{msg}</Text> : null}
-      <Text style={{ fontWeight: "700" }}>Weakest topics → practice:</Text>
+      <Text style={{ fontWeight: "700" }}>Practice by topic:</Text>
       <FlatList
         data={topics}
         keyExtractor={(t) => String(t.id)}
@@ -341,5 +568,41 @@ export default function App() {
         )}
       />
     </View>
+    </ScrollView>
+  );
+}
+
+function SettingsScreen({ api, userId, exam, dash, onSaved }) {
+  const [examDate, setExamDate] = useState(dash.eprog.exam_date || "");
+  const [target, setTarget] = useState(dash.eprog.target || "");
+  const [rem, setRem] = useState(dash.prefs.reminder_time || "");
+  const [msg, setMsg] = useState("");
+  const save = async () => {
+    await fetch(`${api}/exam-progress`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, exam_code: exam, exam_date: examDate || null, target }),
+    });
+    await fetch(`${api}/prefs`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, reminder_time: rem }),
+    });
+    setMsg("Saved ✓");
+    onSaved();
+  };
+  return (
+    <ScrollView style={{ backgroundColor: colors.bg }}>
+      <View style={{ padding: spacing.lg, gap: spacing.sm }}>
+        <Text style={type.h1}>⚙ Settings</Text>
+        <Text>Exam date (YYYY-MM-DD, optional)</Text>
+        <TextInput value={examDate} onChangeText={setExamDate} placeholder="2026-11-01" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8 }} />
+        <Text>Target score / grade (optional)</Text>
+        <TextInput value={target} onChangeText={setTarget} placeholder="A1 / 1300 / 320" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8 }} />
+        <Text>Daily reminder time (HH:MM, optional)</Text>
+        <TextInput value={rem} onChangeText={setRem} placeholder="18:00" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8 }} />
+        <Btn title="Save" onPress={save} />
+        <Btn title="← Back home" variant="ghost" onPress={onSaved} />
+        {msg ? <Text>{msg}</Text> : null}
+      </View>
+    </ScrollView>
   );
 }
