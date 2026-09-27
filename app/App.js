@@ -1,13 +1,38 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, TextInput, Button, FlatList, TouchableOpacity, ScrollView } from "react-native";
 import { colors, spacing, type, difficultyColor } from "./theme";
 import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow } from "./components";
 import { savePack, loadPack, queueAttempt, pendingAttempts, dropQueued, pendingCount, uuid } from "./offline";
 
+// Shows errors on screen instead of a blank page
+class Boundary extends React.Component {
+  state = { err: null };
+  static getDerivedStateFromError(e) { return { err: e }; }
+  render() {
+    if (this.state.err) {
+      return (
+        <View style={{ padding: 24 }}>
+          <Text style={{ fontSize: 18, fontWeight: "700" }}>Something broke:</Text>
+          <Text>{String(this.state.err?.message || this.state.err)}</Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 const EXAMS = ["WAEC", "TOEFL", "SAT", "GRE"];
 
 export default function App() {
+  return (
+    <Boundary>
+      <AppInner />
+    </Boundary>
+  );
+}
+
+function AppInner() {
   const [screen, setScreen] = useState("auth");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

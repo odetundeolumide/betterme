@@ -1,13 +1,17 @@
 // Offline store (O1/O2): exam packs + queued attempts. SQLite with memory fallback.
+// Web has no SQLite → memory store (syncs when online).
+import { Platform } from "react-native";
 let db = null;
 const mem = { packs: {}, queue: [] };
-try {
-  const SQLite = require("expo-sqlite");
-  db = SQLite.openDatabaseSync("betterme.db");
-  db.execSync("CREATE TABLE IF NOT EXISTS packs (key TEXT PRIMARY KEY, payload TEXT, saved_at TEXT);");
-  db.execSync("CREATE TABLE IF NOT EXISTS queue (uuid TEXT PRIMARY KEY, payload TEXT, created_at TEXT);");
-} catch {
-  db = null;
+if (Platform.OS !== "web") {
+  try {
+    const SQLite = require("expo-sqlite");
+    db = SQLite.openDatabaseSync("betterme.db");
+    db.execSync("CREATE TABLE IF NOT EXISTS packs (key TEXT PRIMARY KEY, payload TEXT, saved_at TEXT);");
+    db.execSync("CREATE TABLE IF NOT EXISTS queue (uuid TEXT PRIMARY KEY, payload TEXT, created_at TEXT);");
+  } catch {
+    db = null;
+  }
 }
 
 export const uuid = () =>

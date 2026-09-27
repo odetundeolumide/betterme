@@ -5,6 +5,7 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "primaryColor": "#1a73e8",
+    "newArchEnabled": true,
     "plugins": [
       "expo-asset"
     ]
