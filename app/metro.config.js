@@ -4,24 +4,15 @@ module.exports = (function () {
   const defaultConfig = getDefaultConfig(__dirname);
   const { transformer, resolver } = defaultConfig;
 
-  // Rewrite the broken expo-sqlite web import to our memory store
-  resolver.blockList = resolver.blockList || [];
-  resolver.blockList.push(
-    // Block the default wasm import so Metro doesn't try to fetch it
-    './wa-sqlite/wa-sqlite.wasm'
-  );
-
-  // Alias it to our web store instead
-  resolver.alias = resolver.alias || {};
-  resolver.alias['./wa-sqlite/wa-sqlite.js'] = './offline.web.js';
+  // Alias the broken expo-sqlite wasm import to our web memory store
+  // This way Metro resolves './wa-sqlite/wa-sqlite.wasm' → our offline.web.js instead of trying to fetch the wasm file
+  const alias = resolver.alias || {};
+  alias['./wa-sqlite/wa-sqlite.wasm'] = './offline.web.js';
+  alias['./wa-sqlite/wa-sqlite'] = './offline.web.js';
+  resolver.alias = alias;
 
   return {
     ...defaultConfig,
-    transformer: {
-      ...transformer,
-      // Enable CSS and image processing for the web build
-      experimentalImportSupport: false,
-    },
     resolver,
   };
 })();
