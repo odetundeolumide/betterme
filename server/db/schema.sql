@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS topics (
   id SERIAL PRIMARY KEY,
   exam_code TEXT NOT NULL REFERENCES exams(code),
   subject TEXT NOT NULL,
-  name TEXT NOT NULL
+  name TEXT NOT NULL,
+  department TEXT NOT NULL DEFAULT '' -- WAEC: General | Science | Art | Commerce
 );
 
 CREATE TABLE IF NOT EXISTS questions (

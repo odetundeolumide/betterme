@@ -34,7 +34,7 @@ app.get("/api/exams", async (_req, res) => {
 app.get("/api/topics", async (req, res) => {
   const { exam } = req.query;
   const { rows } = await pool.query(
-    "SELECT id, exam_code, subject, name FROM topics WHERE ($1::text IS NULL OR exam_code = $1) ORDER BY subject, name LIMIT 200",
+    "SELECT id, exam_code, subject, name, department FROM topics WHERE ($1::text IS NULL OR exam_code = $1) ORDER BY subject, name LIMIT 200",
     [exam || null]
   );
   res.json(rows);

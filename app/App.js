@@ -11,6 +11,7 @@ export default function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [exam, setExam] = useState(null);
+  const [dept, setDept] = useState(null);
   const [topics, setTopics] = useState([]);
   const [msg, setMsg] = useState("");
   // Diagnostic state (PRD D1–D6, adaptive D3, pause/resume D4)
@@ -34,8 +35,21 @@ export default function App() {
 
   const pickExam = async (code) => {
     setExam(code);
+    setDept(null);
     const res = await fetch(`${API_URL}/api/topics?exam=${code}`);
-    setTopics(res.ok ? await res.json() : []);
+    const all = res.ok ? await res.json() : [];
+    if (code === "WAEC") {
+      setTopics(all);
+      setScreen("dept");
+    } else {
+      setTopics(all);
+      setScreen("home");
+    }
+  };
+
+  const pickDept = (d) => {
+    setDept(d);
+    setTopics(topics.filter((t) => t.department === "General" || t.department === d));
     setScreen("home");
   };
 
@@ -93,9 +107,13 @@ export default function App() {
 
   const startDiagnostic = async () => {
     setMsg("");
-    const res = await fetch(`${API_URL}/api/questions?exam=${exam}&limit=30`);
+    const res = await fetch(`${API_URL}/api/questions?exam=${exam}&limit=60`);
     if (!res.ok) return setMsg("Could not load questions — is the server running?");
-    const all = await res.json();
+    let all = await res.json();
+    if (exam === "WAEC") {
+      const ids = new Set(topics.map((t) => t.id));
+      all = all.filter((q) => ids.has(q.topic_id));
+    }
     if (!all.length) return setMsg("No questions seeded for this exam yet.");
     const byDiff = (d) => all.filter((q) => q.difficulty === d);
     const ordered = [...byDiff(2), ...byDiff(1), ...byDiff(3)].slice(0, 10);
@@ -143,6 +161,18 @@ export default function App() {
         <Text style={{ fontSize: 20, fontWeight: "700" }}>Choose your exam</Text>
         {EXAMS.map((e) => (
           <Button key={e} title={e} onPress={() => pickExam(e)} />
+        ))}
+      </View>
+    );
+  }
+
+  if (screen === "dept") {
+    return (
+      <View style={{ padding: 24, gap: 8 }}>
+        <Text style={{ fontSize: 20, fontWeight: "700" }}>WAEC — choose department</Text>
+        <Text style={{ color: colors.muted }}>English, Mathematics + Civic are general for all.</Text>
+        {["Science", "Art", "Commerce"].map((d) => (
+          <Button key={d} title={d} onPress={() => pickDept(d)} />
         ))}
       </View>
     );
@@ -294,7 +324,7 @@ export default function App() {
 
   return (
     <View style={{ padding: 24, gap: 8 }}>
-      <Text style={{ fontSize: 20, fontWeight: "700" }}>Home — {exam}</Text>
+      <Text style={{ fontSize: 20, fontWeight: "700" }}>Home — {exam}{exam === "WAEC" && dept ? ` · ${dept}` : ""}</Text>
       <Button title="Start diagnostic test" onPress={startDiagnostic} />
       {draft ? <Button title="Continue where you left off" onPress={() => { setQuiz(draft.quiz); setQi(draft.qi); setAnswers(draft.answers); setTarget(draft.target); setStreak(draft.streak); setScreen("quiz"); }} /> : null}
       <Button title="Ask AI tutor" onPress={() => setMsg("Tutor arrives in Phase 5.")} />
