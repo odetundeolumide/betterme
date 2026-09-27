@@ -2,7 +2,7 @@
   "name": "betterme-app",
   "version": "0.1.0",
   "private": true,
-  "main": "App.js",
+  "main": "index.js",
   "scripts": {
     "start": "expo start"
   },

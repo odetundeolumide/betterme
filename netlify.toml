@@ -1,0 +1,6 @@
+[build]
+  command = "npm install && cd app && npm install && npx expo export -p web"
+  publish = "app/dist"
+
+[functions]
+  directory = "netlify/functions"
