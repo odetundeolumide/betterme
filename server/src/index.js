@@ -195,4 +195,78 @@ app.get("/api/badges", async (req, res) => {
   res.json(badges);
 });
 
+// ---- Phase 5: AI tutor (T1–T4) ----
+
+// What the tutor knows: weak topics, recent history, exam date/target (T2)
+async function tutorContext(user, exam) {
+  const weak = await pool.query(
+    `SELECT a.topic_id, t.name, AVG(a.score::float/NULLIF(jsonb_array_length(a.question_ids),0)) AS avg
+     FROM attempts a LEFT JOIN topics t ON t.id=a.topic_id
+     WHERE a.user_id=$1 AND a.exam_code=$2 AND a.topic_id IS NOT NULL
+     GROUP BY a.topic_id, t.name ORDER BY avg ASC NULLS FIRST LIMIT 3`,
+    [user, exam]
+  );
+  const hist = await pool.query(
+    "SELECT status, score, jsonb_array_length(question_ids) AS total, created_at FROM attempts WHERE user_id=$1 AND exam_code=$2 ORDER BY created_at DESC LIMIT 5",
+    [user, exam]
+  );
+  const ep = await pool.query("SELECT exam_date, target FROM exam_progress WHERE user_id=$1 AND exam_code=$2", [user, exam]);
+  return {
+    weakTopics: weak.rows,
+    recent: hist.rows,
+    examDate: ep.rows[0]?.exam_date || null,
+    target: ep.rows[0]?.target || null,
+    suggestion: weak.rows[0] || null, // T3: practice this next
+  };
+}
+
+app.get("/api/tutor/context", async (req, res) => {
+  res.json(await tutorContext(req.query.user, req.query.exam));
+});
+
+app.post("/api/tutor/ask", async (req, res) => {
+  const { user_id, exam_code, question_id, message } = req.body || {};
+  if (!message) return res.status(400).json({ error: "message required" });
+  const ctx = await tutorContext(user_id, exam_code);
+  let question = null, note = null;
+  if (question_id) {
+    const q = await pool.query("SELECT stem, options, answer_idx, explanation, topic_id FROM questions WHERE id=$1", [question_id]);
+    question = q.rows[0] || null;
+    if (question) {
+      const n = await pool.query("SELECT body_md FROM notes WHERE topic_id=$1", [question.topic_id]);
+      note = n.rows[0]?.body_md || null;
+    }
+  }
+  const weakList = ctx.weakTopics.map((w) => `${w.name} (${w.avg === null ? "new" : Math.round(w.avg * 100) + "%"})`).join(", ") || "none yet";
+
+  // No LLM key → honest rule-based fallback grounded in real data
+  if (!process.env.LLM_API_KEY) {
+    let answer;
+    if (question) {
+      const opts = typeof question.options === "string" ? JSON.parse(question.options) : question.options;
+      const cleanNote = note ? note.replace(/\\n/g, " ").split(". ")[0] : null;
+      answer = `Let's break it down: "${question.stem}" The correct answer is "${opts[question.answer_idx]}". ${question.explanation}${cleanNote ? ` Key idea: ${cleanNote}.` : ""}`;
+    } else if (ctx.weakTopics.length) {
+      answer = `Your weakest topics right now: ${weakList}. I suggest starting with ${ctx.weakTopics[0].name} — tap "Practice" below for a drill.`;
+    } else {
+      answer = `Take the diagnostic first so I can learn your weak topics, then ask me anything like "explain this again in a simpler way".`;
+    }
+    return res.json({ answer, suggestion: ctx.suggestion, source: "fallback" });
+  }
+
+  // LLM path: grounded prompt with student context + question + notes
+  const system = `You are BetterMe, a tutor for ${exam_code} prep. Student weak topics: ${weakList}. Exam date: ${ctx.examDate || "unset"}, target: ${ctx.target || "unset"}. Be concise, exam-focused, and end with one concrete next step.`;
+  const userMsg = question
+    ? `Question: ${question.stem}\nCorrect: ${(typeof question.options === "string" ? JSON.parse(question.options) : question.options)[question.answer_idx]}\nWhy: ${question.explanation}\nNotes: ${note || "n/a"}\nStudent asks: ${message}`
+    : `Student asks: ${message}`;
+  const r = await fetch(`${process.env.LLM_BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.LLM_API_KEY}` },
+    body: JSON.stringify({ model: process.env.LLM_MODEL, messages: [{ role: "system", content: system }, { role: "user", content: userMsg }], max_tokens: 400 }),
+  });
+  if (!r.ok) return res.status(502).json({ error: "tutor provider failed" });
+  const data = await r.json();
+  res.json({ answer: data.choices?.[0]?.message?.content || "", suggestion: ctx.suggestion, source: "llm" });
+});
+
 app.listen(PORT, () => console.log(`betterme-server on http://localhost:${PORT}`));

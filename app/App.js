@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { View, Text, TextInput, Button, FlatList, TouchableOpacity, ScrollView } from "react-native";
 import { colors, spacing, type, difficultyColor } from "./theme";
-import { Btn, Card, Badge, ProgressBar, SectionTitle } from "./components";
+import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble } from "./components";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 const EXAMS = ["WAEC", "TOEFL", "SAT", "GRE"];
@@ -155,7 +155,38 @@ export default function App() {
 
   useEffect(() => { if (screen === "home") loadHome(); }, [screen]);
 
-  // Mock state (M1/M2) — full standard counts from specs
+  // Tutor state (T1–T4)
+  const [tutorQ, setTutorQ] = useState(null);
+  const [chat, setChat] = useState([]);
+  const [tutorCtx, setTutorCtx] = useState(null);
+  const [tmsg, setTmsg] = useState("");
+  const [tsending, setTsending] = useState(false);
+
+  const openTutor = async (question) => {
+    setTutorQ(question || null);
+    setChat([]); setTmsg("");
+    const q = `user=${encodeURIComponent(userId)}&exam=${exam}`;
+    const res = await fetch(`${API_URL}/api/tutor/context?${q}`);
+    setTutorCtx(res.ok ? await res.json() : null);
+    setScreen("tutor");
+  };
+
+  const askTutor = async (preset) => {
+    const text = (preset || tmsg).trim();
+    if (!text || tsending) return;
+    setTsending(true);
+    setChat((c) => [...c, { from: "you", text }]);
+    setTmsg("");
+    const res = await fetch(`${API_URL}/api/tutor/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, exam_code: exam, question_id: tutorQ ? tutorQ.id : null, message: text }),
+    });
+    const data = res.ok ? await res.json() : { answer: "Tutor is unreachable — try your notes for now.", suggestion: null, source: "error" };
+    setChat((c) => [...c, { from: "tutor", text: data.answer }]);
+    if (data.suggestion) setTutorCtx((ctx) => ({ ...(ctx || {}), suggestion: data.suggestion }));
+    setTsending(false);
+  };
   const [mockLabel, setMockLabel] = useState("");
   const [mq, setMq] = useState([]);
   const [mqi, setMqi] = useState(0);
@@ -403,7 +434,7 @@ export default function App() {
                 {!a.correct ? <Text>Answer: {opts[a.q.answer_idx]}</Text> : null}
                 <Text style={{ color: colors.muted }}>{a.q.explanation}</Text>
                 <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm }}>
-                  <View style={{ flex: 1 }}><Btn title="✨ Ask tutor" variant="ghost" onPress={() => setMsg("Tutor arrives in Phase 5.")} /></View>
+                  <View style={{ flex: 1 }}><Btn title="✨ Ask tutor" variant="ghost" onPress={() => openTutor(a.q)} /></View>
                   <View style={{ flex: 1 }}><Btn title="🚩 Report" variant="ghost" onPress={() => reportQ(a.q.id)} /></View>
                 </View>
               </Card>
@@ -424,6 +455,39 @@ export default function App() {
           <Text style={type.h1}>📘 {ptopic ? ptopic.name : "Notes"}</Text>
           <Card><Text>{note ? note.body_md : "Loading…"}</Text></Card>
           {ptopic ? <Btn title="Practice this topic →" onPress={() => startPractice(ptopic)} /> : null}
+          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+        </View>
+      </ScrollView>
+    );
+  }
+
+  if (screen === "tutor") {
+    const sug = tutorCtx?.suggestion;
+    const sugTopic = sug ? topics.find((t) => t.id === sug.topic_id) : null;
+    return (
+      <ScrollView style={{ backgroundColor: colors.bg }}>
+        <View style={{ padding: spacing.lg }}>
+          <Text style={type.h1}>✨ AI tutor</Text>
+          {tutorCtx ? (
+            <Text style={{ color: colors.muted }}>
+              Knows: weak {tutorCtx.weakTopics?.map((w) => w.name).join(", ") || "none yet"}
+              {tutorCtx.examDate ? ` · exam ${tutorCtx.examDate}` : ""}
+            </Text>
+          ) : null}
+          {tutorQ ? <Card accent={colors.tutor}><Text style={{ fontWeight: "700" }}>About: {tutorQ.stem}</Text></Card> : null}
+          {chat.map((m, i) => (
+            <ChatBubble key={i} from={m.from} text={m.text} />
+          ))}
+          {tsending ? <Text style={{ color: colors.muted }}>Tutor is thinking…</Text> : null}
+          {sug && sugTopic ? (
+            <Card accent={colors.tutor}>
+              <Text style={{ fontWeight: "800" }}>Practice next → {sugTopic.name}</Text>
+              <Btn title="Start drill" onPress={() => startPractice(sugTopic)} />
+            </Card>
+          ) : null}
+          <TextInput value={tmsg} onChangeText={setTmsg} placeholder="Ask, e.g. explain this again simply" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8, marginTop: spacing.sm }} />
+          <Btn title="Send" onPress={() => askTutor()} />
+          <Btn title="Explain simply" variant="ghost" onPress={() => askTutor("explain this again in a simpler way")} />
           <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
         </View>
       </ScrollView>
@@ -553,7 +617,7 @@ export default function App() {
       ) : null}
       {dash.prefs.reminder_time ? <Text style={{ color: colors.muted }}>🔔 Reminder at {dash.prefs.reminder_time} ✓</Text> : null}
       {weakNote ? <Button title={`📝 Notes: ${weakNote.name} (weakest)`} onPress={() => openNotes(weakNote)} /> : null}
-      <Button title="Ask AI tutor" onPress={() => setMsg("Tutor arrives in Phase 5.")} />
+      <Button title="Ask AI tutor" onPress={() => openTutor(null)} />
       <Button title="View design system" onPress={() => setScreen("design")} />
       <Button title="⚙ Settings (date, target, reminder)" onPress={() => setScreen("settings")} />
       {msg ? <Text>{msg}</Text> : null}
