@@ -97,10 +97,15 @@ BetterMe gives every student a clear starting point, a guided path forward, and 
 ```text
 Qubator/
 ├── README.md
+├── docker-compose.yml      # local Postgres (needs Docker; else install Postgres)
+├── app/                    # Expo app (Auth → ExamPicker → Home)
+├── server/                 # local API + Better Auth + Postgres schema/seed
+├── content/                # bulk question CSV imports
 └── doc/
     ├── betterme-project-brief.md
     ├── exam-prep-companion-app-features.md
-    └── exam-prep-companion-app-prd.md
+    ├── exam-prep-companion-app-prd.md
+    └── implementation-plan.md
 ```
 
 ## Documentation
@@ -109,15 +114,31 @@ Qubator/
 * `doc/exam-prep-companion-app-features.md` — full feature list (accounts, diagnostic, practice, notes, mocks, plan, home, tutor, community, offline)
 * `doc/exam-prep-companion-app-prd.md` — requirements (A1–O3), journey, principles, metrics, risks
 
-## Getting Started
+## Getting Started (Phase 0 scaffold)
 
-This repo is currently docs-only — no app code yet.
+No Docker or Postgres on this device yet — install Postgres or Docker Desktop first, or just explore the code.
 
 ```sh
-git clone https://github.com/odetundeolumide/betterme.git
-cd betterme
-# Start with the brief, then the PRD
+# 1. DB (option A: Docker)
+docker compose up -d db
+# option B: install Postgres locally, create db "betterme"
+
+# 2. Server (local API + Better Auth, http://localhost:3000)
+cd server
+cp .env.example .env
+npm install
+psql "$DATABASE_URL" -f db/schema.sql
+psql "$DATABASE_URL" -f db/seed.sql
+npm run dev
+
+# 3. App (Expo)
+cd ../app
+npm install
+cp .env.example .env
+npx expo start
 ```
+
+Docs first:
 
 1. Read `doc/betterme-project-brief.md`
 2. Read `doc/exam-prep-companion-app-prd.md`
