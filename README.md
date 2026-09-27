@@ -92,9 +92,36 @@ BetterMe gives every student a clear starting point, a guided path forward, and 
 - Speaking and writing practice with feedback (TOEFL)
 - Essay practice with feedback (GRE and WAEC)
 
+## Project Structure
+
+```text
+Qubator/
+├── README.md
+└── doc/
+    ├── betterme-project-brief.md
+    ├── exam-prep-companion-app-features.md
+    └── exam-prep-companion-app-prd.md
+```
+
+## Documentation
+
+* `doc/betterme-project-brief.md` — overview, problem, solution, scope
+* `doc/exam-prep-companion-app-features.md` — full feature list (accounts, diagnostic, practice, notes, mocks, plan, home, tutor, community, offline)
+* `doc/exam-prep-companion-app-prd.md` — requirements (A1–O3), journey, principles, metrics, risks
+
 ## Getting Started
 
-Setup and installation instructions will be added here as the project develops.
+This repo is currently docs-only — no app code yet.
+
+```sh
+git clone https://github.com/odetundeolumide/betterme.git
+cd betterme
+# Start with the brief, then the PRD
+```
+
+1. Read `doc/betterme-project-brief.md`
+2. Read `doc/exam-prep-companion-app-prd.md`
+3. Confirm open questions in PRD §10 (target student, leaderboard filter, moderation, metric targets) before building.
 
 ## Contributing
 
