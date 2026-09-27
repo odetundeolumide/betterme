@@ -7,7 +7,7 @@ Repo state: docs-only. This plan covers all requirements A1–O3.
 
 - **Primary launch exam:** WAEC-first recommended (largest low-data need). TOEFL/SAT/GRE content follows the same schema.
 - **Open Qs (PRD §10):** leaderboard defaults to exam-filtered; tutor links to notes; home order = Continue > This-week plan > Progress > Tutor; community = report + hide after N reports + maintainer review.
-- **Stack:** Expo React Native (Android/iOS/Web, one codebase) + Supabase (Postgres, Auth, Storage) + expo-sqlite offline queue + LLM API for tutor. All free-tier compatible (PRD A7).
+- **Stack (locked per user):** Expo React Native + local Postgres (on dev device, no Supabase) + Better Auth + local API backend (runs on dev device first) + Cloudflare R2 for object storage + expo-sqlite offline queue + LLM API for tutor. Free for students (PRD A7).
 - **Adaptive v1:** rule-based, not ML. Start at difficulty 2/3; +1 after 2 correct in a row, −1 after 2 wrong. Applies to D3 and P3.
 
 ## Data model v1
@@ -27,14 +27,14 @@ answers(post_id, user_id, body, is_accepted) reports(question_id|post_id, reason
 
 ## Phase 0 — Foundations (1 wk)
 
-- Monorepo layout: `app/`, `supabase/` (migrations, seeds), `content/` (CSV → seed scripts).
+- Monorepo layout: `app/` (Expo), `server/` (local API + Better Auth + Postgres migrations/seeds), `content/` (CSV → seed scripts). Local-first hosting: Postgres + API run on dev device (Docker Compose); app points to LAN URL. Cloudflare R2 bucket for images/exports only.
 - Design tokens, nav shell, CI (lint + typecheck + unit), analytics events for PRD §8 (diagnostic_finish, quiz_finish, mock_finish, tutor_ask, report_create).
 - Seed: 50 questions + 5 notes for WAEC to unblock Phases 1–3.
 - Exit: `npx expo start` runs; login → empty home renders.
 
 ## Phase 1 — Accounts, Exams, Home shell (A1–A7, H skeleton)
 
-- A1 signup/login (Supabase Auth). A2 exam picker (WAEC/TOEFL/SAT/GRE). A3 switcher. A4 per-exam progress isolation (`exam_progress`). A5/A6 optional date/target. A7 no paywall checks.
+- A1 signup/login via Better Auth against local API + Postgres (no Supabase). A2 exam picker (WAEC/TOEFL/SAT/GRE). A3 switcher. A4 per-exam progress isolation (`exam_progress`). A5/A6 optional date/target. A7 no paywall checks.
 - Home skeleton: Continue (H1), tutor shortcut (H2), recent progress stub (H3), badges/reminder status (H4), countdown iff date set (H5), weakest-topic link stub (H6 → filled in Phase 3).
 - Acceptance: new user → picker → diagnostic prompt (D1). Switch exam keeps separate progress.
 - Screens: Auth, ExamPicker, Home.
@@ -74,7 +74,7 @@ answers(post_id, user_id, body, is_accepted) reports(question_id|post_id, reason
 
 ## Phase 7 — Offline, Low-data, Launch (O1–O3, polish)
 
-- O1 download packs (exam → topics → questions + notes, compressed JSON + cached images). O2 offline attempts saved locally, sync on reconnect with idempotency key (`offline_created_at` + uuid). O3 bundle audit (<5MB first load), lazy routes, text-first UI.
+- O1 download packs (exam → topics → questions + notes, compressed JSON + R2-cached images). O2 offline attempts saved locally, sync on reconnect with idempotency key (`offline_created_at` + uuid). O3 bundle audit (<5MB first load), lazy routes, text-first UI.
 - QA: timer + backgrounding, sync conflicts, airplane-mode practice, empty states, accessibility pass.
 - Launch checklist: content review (all explanations filled), mock lengths verified, metrics dashboard (§8), report SLA defined, license chosen.
 - Non-goals (out of scope): TOEFL speaking/writing, GRE/WAEC essays, paid plans.
