@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { View, Text, TextInput, Button, FlatList, TouchableOpacity } from "react-native";
+import { View, Text, TextInput, Button, FlatList, TouchableOpacity, ScrollView } from "react-native";
+import { colors, spacing, type, difficultyColor } from "./theme";
+import { Btn, Card, Badge, ProgressBar, SectionTitle } from "./components";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 const EXAMS = ["WAEC", "TOEFL", "SAT", "GRE"];
@@ -55,11 +57,43 @@ export default function App() {
     );
   }
 
+  if (screen === "design") {
+    return (
+      <ScrollView style={{ backgroundColor: colors.bg }}>
+        <View style={{ padding: spacing.lg, gap: spacing.sm }}>
+          <Text style={type.h1}>Design system</Text>
+          <Text style={{ color: colors.muted }}>Tokens + components. Tap Home to go back.</Text>
+          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+          <SectionTitle>Colors</SectionTitle>
+          <View style={{ flexDirection: "row", gap: spacing.sm }}>
+            {[colors.primary, colors.success, colors.warning, colors.danger, colors.tutor].map((c) => (
+              <View key={c} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: c }} />
+            ))}
+          </View>
+          <SectionTitle>Buttons / Cards / Badges</SectionTitle>
+          <Btn title="Primary button" onPress={() => {}} />
+          <Btn title="Ghost button" variant="ghost" onPress={() => {}} />
+          <Card>
+            <Text style={type.h2}>Quiz review card</Text>
+            <Text style={{ color: colors.muted }}>Algebra · difficulty <Text style={{ color: difficultyColor(3), fontWeight: "700" }}>hard</Text></Text>
+            <ProgressBar value={0.67} />
+          </Card>
+          <View style={{ flexDirection: "row", gap: spacing.sm }}>
+            <Badge label="NEW" />
+            <Badge label="WEAK" color={colors.danger} />
+            <Badge label="TUTOR" color={colors.tutor} />
+          </View>
+        </View>
+      </ScrollView>
+    );
+  }
+
   return (
     <View style={{ padding: 24, gap: 8 }}>
       <Text style={{ fontSize: 20, fontWeight: "700" }}>Home — {exam}</Text>
       <Button title="Continue where you left off" onPress={() => setMsg("No draft yet — take the diagnostic first.")} />
       <Button title="Ask AI tutor" onPress={() => setMsg("Tutor arrives in Phase 5.")} />
+      <Button title="View design system" onPress={() => setScreen("design")} />
       {msg ? <Text>{msg}</Text> : null}
       <Text style={{ fontWeight: "700" }}>Weakest topics → practice:</Text>
       <FlatList
