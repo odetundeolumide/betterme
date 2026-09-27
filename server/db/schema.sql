@@ -26,6 +26,14 @@ CREATE TABLE IF NOT EXISTS notes (
   body_md TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS reports (
+  id SERIAL PRIMARY KEY,
+  question_id INT REFERENCES questions(id),
+  reason TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'open',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS attempts (
   id SERIAL PRIMARY KEY,
   user_id TEXT NOT NULL,

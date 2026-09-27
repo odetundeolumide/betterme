@@ -4,6 +4,7 @@ import "dotenv/config";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
 import { pool } from "./db.js";
+import { EXAM_SPECS } from "./specs.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -46,10 +47,34 @@ app.get("/api/questions", async (req, res) => {
      FROM questions
      WHERE ($1::text IS NULL OR exam_code = $1)
        AND ($2::int IS NULL OR topic_id = $2)
-     ORDER BY RANDOM() LIMIT LEAST(COALESCE($3::int, 15), 50)`,
+     ORDER BY RANDOM() LIMIT LEAST(COALESCE($3::int, 15), 150)`,
     [exam || null, topic || null, limit || 15]
   );
   res.json(rows);
+});
+
+// Standard exam specs (counts + timing, Phase 3)
+app.get("/api/specs", (_req, res) => res.json(EXAM_SPECS));
+app.get("/api/specs/:exam", (req, res) => {
+  const spec = EXAM_SPECS[req.params.exam];
+  if (!spec) return res.status(404).json({ error: "unknown exam" });
+  res.json(spec);
+});
+
+// Topic notes (N1/N2)
+app.get("/api/notes", async (req, res) => {
+  const { topic } = req.query;
+  const { rows } = await pool.query("SELECT topic_id, body_md FROM notes WHERE topic_id = $1", [topic]);
+  if (!rows.length) return res.status(404).json({ error: "no notes for topic" });
+  res.json(rows[0]);
+});
+
+// Report a question (P6)
+app.post("/api/reports", async (req, res) => {
+  const { question_id, reason } = req.body || {};
+  if (!question_id) return res.status(400).json({ error: "question_id required" });
+  await pool.query("INSERT INTO reports (question_id, reason) VALUES ($1, $2)", [question_id, reason || ""]);
+  res.json({ ok: true });
 });
 
 app.listen(PORT, () => console.log(`betterme-server on http://localhost:${PORT}`));

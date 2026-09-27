@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { View, Text, TextInput, Button, FlatList, TouchableOpacity, ScrollView } from "react-native";
 import { colors, spacing, type, difficultyColor } from "./theme";
 import { Btn, Card, Badge, ProgressBar, SectionTitle } from "./components";
@@ -37,6 +37,58 @@ export default function App() {
     const res = await fetch(`${API_URL}/api/topics?exam=${code}`);
     setTopics(res.ok ? await res.json() : []);
     setScreen("home");
+  };
+
+  // Practice state (PRD P1–P7, N1–N2) — 10Q standard drill, timed
+  const [ptopic, setPtopic] = useState(null);
+  const [pq, setPq] = useState([]);
+  const [pqi, setPqi] = useState(0);
+  const [pans, setPans] = useState([]);
+  const [secs, setSecs] = useState(0);
+  const [note, setNote] = useState(null);
+
+  useEffect(() => {
+    if (screen !== "practice" || secs <= 0) return;
+    const t = setTimeout(() => {
+      if (secs === 1) setScreen("review");
+      else setSecs(secs - 1);
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [screen, secs]);
+
+  const startPractice = async (topic) => {
+    setMsg("");
+    const res = await fetch(`${API_URL}/api/questions?exam=${exam}&topic=${topic.id}&limit=10`);
+    if (!res.ok) return setMsg("Could not load practice — is the server running?");
+    const qs = await res.json();
+    if (!qs.length) return setMsg(`No questions banked for ${topic.name} yet.`);
+    setPtopic(topic); setPq(qs); setPqi(0); setPans([]);
+    setSecs(10 * 60); // standard 10Q drill, 10 min
+    setScreen("practice");
+  };
+
+  const answerPractice = (idx) => {
+    const q = pq[pqi];
+    const next = [...pans, { q, picked: idx, correct: idx === q.answer_idx }];
+    setPans(next);
+    if (pqi + 1 >= pq.length) setScreen("review");
+    else setPqi(pqi + 1);
+  };
+
+  const openNotes = async (topic) => {
+    const res = await fetch(`${API_URL}/api/notes?topic=${topic.id}`);
+    setNote(res.ok ? await res.json() : { body_md: "Notes for this topic are being written." });
+    setPtopic(topic);
+    setScreen("notes");
+  };
+
+  const reportQ = async (qid) => {
+    await fetch(`${API_URL}/api/reports`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question_id: qid, reason: "flagged from app review" }),
+    });
+    setMsg("Reported — thank you. Our reviewers will check it.");
   };
 
   const startDiagnostic = async () => {
@@ -169,9 +221,72 @@ export default function App() {
             </Card>
           ))}
           {weak ? <Text>Weakest: <Text style={{ fontWeight: "800" }}>{weak[0]}</Text> — practice it next.</Text> : null}
-          <Btn title="Practice weakest topic →" onPress={() => setMsg("Topic practice arrives in Phase 3.")} />
+          <Btn title="Practice weakest topic →" onPress={() => { const t = topics.find((x) => x.name === weak[0]); if (t) startPractice(t); }} />
           <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
           {msg ? <Text>{msg}</Text> : null}
+        </View>
+      </ScrollView>
+    );
+  }
+
+  if (screen === "practice" && pq[pqi]) {
+    const q = pq[pqi];
+    const opts = typeof q.options === "string" ? JSON.parse(q.options) : q.options;
+    const mm = String(Math.floor(secs / 60)).padStart(2, "0");
+    const ss = String(secs % 60).padStart(2, "0");
+    return (
+      <ScrollView style={{ backgroundColor: colors.bg }}>
+        <View style={{ padding: spacing.lg }}>
+          <Text style={type.h2}>{ptopic.name} {pqi + 1}/{pq.length}</Text>
+          <Text style={{ fontWeight: "800" }}>⏱ {mm}:{ss}</Text>
+          <ProgressBar value={pqi / pq.length} />
+          <Card><Text style={{ fontSize: 16, fontWeight: "700" }}>{q.stem}</Text></Card>
+          {opts.map((o, i) => (
+            <Btn key={i} title={o} variant="ghost" onPress={() => answerPractice(i)} />
+          ))}
+          <Btn title="📘 Read notes first" variant="ghost" onPress={() => openNotes(ptopic)} />
+        </View>
+      </ScrollView>
+    );
+  }
+
+  if (screen === "review") {
+    const score = pans.filter((a) => a.correct).length;
+    return (
+      <ScrollView style={{ backgroundColor: colors.bg }}>
+        <View style={{ padding: spacing.lg }}>
+          <Text style={type.h1}>Practice: {score}/{pans.length}</Text>
+          {pans.map((a, i) => {
+            const opts = typeof a.q.options === "string" ? JSON.parse(a.q.options) : a.q.options;
+            return (
+              <Card key={i} accent={a.correct ? colors.success : colors.danger}>
+                <Text style={{ fontWeight: "700" }}>Q{i + 1}. {a.q.stem}</Text>
+                <Text>You: {opts[a.picked]} {a.correct ? "✅" : "❌"}</Text>
+                {!a.correct ? <Text>Answer: {opts[a.q.answer_idx]}</Text> : null}
+                <Text style={{ color: colors.muted }}>{a.q.explanation}</Text>
+                <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm }}>
+                  <View style={{ flex: 1 }}><Btn title="✨ Ask tutor" variant="ghost" onPress={() => setMsg("Tutor arrives in Phase 5.")} /></View>
+                  <View style={{ flex: 1 }}><Btn title="🚩 Report" variant="ghost" onPress={() => reportQ(a.q.id)} /></View>
+                </View>
+              </Card>
+            );
+          })}
+          {msg ? <Text>{msg}</Text> : null}
+          <Btn title="📘 Topic notes" onPress={() => openNotes(ptopic)} />
+          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+        </View>
+      </ScrollView>
+    );
+  }
+
+  if (screen === "notes") {
+    return (
+      <ScrollView style={{ backgroundColor: colors.bg }}>
+        <View style={{ padding: spacing.lg }}>
+          <Text style={type.h1}>📘 {ptopic ? ptopic.name : "Notes"}</Text>
+          <Card><Text>{note ? note.body_md : "Loading…"}</Text></Card>
+          {ptopic ? <Btn title="Practice this topic →" onPress={() => startPractice(ptopic)} /> : null}
+          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
         </View>
       </ScrollView>
     );
@@ -190,8 +305,8 @@ export default function App() {
         data={topics}
         keyExtractor={(t) => String(t.id)}
         renderItem={({ item }) => (
-          <TouchableOpacity onPress={() => setMsg(`Practice ${item.name} (Phase 3)`)}>
-            <Text>- {item.subject}: {item.name}</Text>
+          <TouchableOpacity onPress={() => startPractice(item)}>
+            <Text>- {item.subject}: {item.name} →</Text>
           </TouchableOpacity>
         )}
       />
