@@ -345,7 +345,7 @@ function AppInner() {
     setScreen("board");
   };
 
-  const tutorFab = <Fab onPress={() => openTutor(null)} />;
+  const tutorFab = <Fab icon="🎓" onPress={() => openTutor(null)} />;
   const [mockLabel, setMockLabel] = useState("");
   const [mq, setMq] = useState([]);
   const [mqi, setMqi] = useState(0);
