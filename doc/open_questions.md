@@ -21,7 +21,7 @@ Recorded instead of guessed. Nothing here is decided until answered.
 
 ## Legal/ownership (see docs/privacy_checklist.md once created)
 10. **Data controller — ANSWERED: Odetunde Olumide, odetundeolumide94@gmail.com.** Used in privacy notice + deletion contact.
-11. NDPC registration, DPIA owner, and parental-consent wording reviewer — who?
+11. **Legal ownership — DEFERRED to pre-launch.** NDPC registration, DPIA, and consent-wording review go on `docs/privacy_checklist.md` as open checks owned by TBD.
 12. Deletion request path: in-app form only, or also an email address?
 
 ## Verified repo facts (not questions)
