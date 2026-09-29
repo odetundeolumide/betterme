@@ -388,7 +388,8 @@ export function parseSubject(displayName, bodyLines) {
       continue;
     }
     if (mode === "textbooks") {
-      if (/^\*\*|^##?\s|^\d+\.\s+|^-\s+^\||^\|/.test(t) || /^\*\*(Part|Section|[A-Z]\.)/i.test(t) || /^\*[^*]+\*$/.test(t)) {
+      if (/^-{3,}\s*$/.test(t)) continue; // md section separators, not content
+      if (/^\*\*|^##?\s|^\d+\.\s+|^\||^\*[^*]+\*$/.test(t) || /^\*\*(Part|Section|Paper \d|[A-Z]\.)/i.test(t) || /^-\s/.test(t)) {
         mode = "body";
         // fall through to reprocess this line in body mode
       } else {
@@ -413,6 +414,7 @@ export function parseSubject(displayName, bodyLines) {
       subjectNotes.push(t.replace(/^\*\*(.+?)\*\*\s*:?\s*/, (mm, h) => h.trim() + ": "));
       continue;
     }
+    if (/^-{3,}\s*$/.test(t)) continue; // md section separators, not content
     topicLines.push({ raw, index: i });
   }
   if (mode === "format") flushFormat();
@@ -508,11 +510,14 @@ const RACHEL_BASE = "https://rachel.core2learn.org/modules/en-wassce/WASSCESYLAB
 export function resolveUrl(raw) {
   const u = raw.trim().replace(/[).,;]+$/, "");
   if (/^https?:\/\//i.test(u)) return u;
-  if (u.startsWith(".../")) return RACHEL_BASE + u.slice(4);
+  // ".../" or "../" in the doc means the syllabus host dir itself; the
+  // filename part sometimes repeats WASSCESYLABUS, which the base already has.
+  const m = u.match(/^\.{2,}\/(.*)$/);
+  if (m) return RACHEL_BASE + m[1].replace(/^WASSCESYLABUS\//, "");
   if (u.startsWith("rachel.core2learn.org/")) return "https://" + u;
   return u;
 }
-const URL_RE = /https?:\/\/[^\s)]+|\.\.\/[^\s)]+|rachel\.core2learn\.org\/[^\s)]+/;
+const URL_RE = /https?:\/\/[^\s)]+|\.{2,}\/[^\s)]+|rachel\.core2learn\.org\/[^\s)]+/;
 export function deptSlugFor(header) {
   const h = header.toLowerCase();
   if (h.includes("science")) return "science";
