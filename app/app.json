@@ -12,7 +12,8 @@
     },
     "plugins": [
       "expo-asset",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-camera"
     ]
   }
 }

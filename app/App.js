@@ -4,6 +4,8 @@ import { colors, spacing, type, radius, shadow, page } from "./theme";
 import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow, Screen, PageHeader, HoverCard, MenuRow, EmptyState, Field, Fab, TutorBuddy, TimerPill, PrePrompt } from "./components";
 import { savePack, loadPack, queueAttempt, pendingAttempts, dropQueued, pendingCount, uuid } from "./offline";
 import { logPerm, setupChannels, notifStatus, requestNotifPermission, registerToken, openAppSettings, scheduleLocalReminder, iosNeedsInstall } from "./notify";
+import { CameraView } from "expo-camera";
+import { cameraStatus as camStatus, requestCamera as reqCamera, setSecureScreen, watchAppState, detectImage, openAppSettings as openSysSettings } from "./proctor";
 
 // Shows errors on screen instead of a blank page
 class Boundary extends React.Component {
@@ -318,6 +320,146 @@ function AppInner() {
   const [answerBody, setAnswerBody] = useState("");
   const [board, setBoard] = useState({ board: [], me: null });
 
+  // Part B: proctored exams (consent-gated, camera only in-session)
+  const [consentInfo, setConsentInfo] = useState(null);
+  const [schoolName, setSchoolName] = useState("");
+  const [parentName, setParentName] = useState("");
+  const [parentRel, setParentRel] = useState("");
+  const [camMsg, setCamMsg] = useState("");
+  const [camState, setCamState] = useState(null);
+  const [camReady, setCamReady] = useState(false);
+  const [proctorArmed, setProctorArmed] = useState(false);
+  const [proctor, setProctor] = useState(null); // {sessionId, config}
+  const [camIssue, setCamIssue] = useState(false);
+  const cameraRef = useRef(null);
+  const watchStop = useRef(null);
+  const sustain = useRef({ noFaceSince: 0, turnSince: 0 });
+
+  // Part C: deletion requests (Q12, in-app only)
+  const [delReason, setDelReason] = useState("");
+  const [delMsg, setDelMsg] = useState("");
+
+  const submitDeletion = async () => {
+    setDelMsg("");
+    const res = await fetch(`${API_URL}/api/deletion-requests`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, reason: delReason }),
+    });
+    if (res.ok) {
+      setDelReason("");
+      setDelMsg("Request received ✓ — the data controller will action it and confirm by email.");
+    } else {
+      setDelMsg("Could not send — try again later.");
+    }
+  };
+
+  const loadConsent = async () => {
+    setCamMsg("");
+    const res = await fetch(`${API_URL}/api/consents?user=${encodeURIComponent(userId)}`);
+    setConsentInfo(res.ok ? await res.json() : null);
+    setScreen("consent");
+  };
+
+  const submitConsents = async () => {
+    setCamMsg("");
+    const post = (b) => fetch(`${API_URL}/api/consents`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ student_id: userId, ...b }) });
+    if (schoolName.trim()) {
+      const r = await post({ consent_type: "school", notice_version: consentInfo?.notice?.version, consenter_name: schoolName.trim() });
+      if (!r.ok) {
+        setCamMsg("School consent failed — try again.");
+        return;
+      }
+    }
+    if (parentName.trim()) {
+      const r = await post({ consent_type: "parent", notice_version: consentInfo?.notice?.version, consenter_name: parentName.trim(), relationship: parentRel.trim() });
+      if (!r.ok) {
+        setCamMsg(r.status === 400 ? "Parent/guardian name is required." : "Parent consent failed — try again.");
+        return;
+      }
+    }
+    await loadConsent();
+    const g = await fetch(`${API_URL}/api/consents?user=${encodeURIComponent(userId)}`).then((x) => x.json()).catch(() => null);
+    if (g?.complete) setScreen("camPrompt");
+    else setCamMsg("Both school and parent consent are needed before a proctored exam.");
+  };
+
+  const openProctored = async () => {
+    await loadConsent();
+    const g = await fetch(`${API_URL}/api/consents?user=${encodeURIComponent(userId)}`).then((x) => x.json()).catch(() => null);
+    if (g?.complete) setScreen("camPrompt");
+  };
+
+  const doCamEnable = async () => {
+    setCamMsg("");
+    await logPerm(userId, "camera", camState || "", "prompt_shown");
+    const st = await reqCamera().catch(() => "denied_once");
+    await logPerm(userId, "camera", camState || "", st);
+    setCamState(st);
+    if (st === "granted") {
+      setScreen("proctorCheck");
+    } else if (st === "no_camera" || st === "in_use") {
+      setCamMsg(st === "no_camera" ? "No camera found on this device." : "Camera is busy in another app — close it and retry.");
+    }
+    // denied_once / permanently_denied handled by the camPrompt screen UI
+  };
+
+  const postFlag = async (flagType, detail, snapshot) => {
+    if (!proctor) return;
+    await fetch(`${API_URL}/api/proctor-flags`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_id: userId, session_id: proctor.sessionId, flag_type: flagType, snapshot_url: snapshot || "", detail: detail || {} }),
+    }).catch(() => {});
+  };
+
+  const snapPhoto = async () => {
+    try {
+      const shot = await cameraRef.current?.takePictureAsync({ quality: 0.4, base64: true, skipProcessing: true });
+      if (!shot?.base64) return null;
+      return `data:image/jpeg;base64,${shot.base64}`;
+    } catch {
+      return null;
+    }
+  };
+
+  // Silent detection sweep (web: MediaPipe; native: unsupported → review flag path).
+  const detectionSweep = async () => {
+    if (!proctor || !cameraRef.current) return;
+    const cfg = proctor.config;
+    let snap = null;
+    try {
+      snap = await snapPhoto();
+    } catch {
+      setCamIssue(true);
+      postFlag("camera_failed", {}, null);
+      return;
+    }
+    if (!snap) return;
+    const r = await detectImage(snap).catch(() => null);
+    if (!r) return; // model unavailable — session continues, no flag
+    const now = Date.now();
+    if (r.faces === 0) {
+      if (!sustain.current.noFaceSince) sustain.current.noFaceSince = now;
+      if (now - sustain.current.noFaceSince > cfg.no_face_seconds * 1000) {
+        postFlag("no_face", { seconds: Math.round((now - sustain.current.noFaceSince) / 1000) }, snap);
+        sustain.current.noFaceSince = 0;
+      }
+    } else {
+      sustain.current.noFaceSince = 0;
+    }
+    if (r.faces > 1) {
+      postFlag("multiple_faces", { faces: r.faces }, snap);
+    }
+    if (Math.abs(r.yawDeg) > cfg.yaw_degrees || Math.abs(r.pitchDeg) > cfg.pitch_degrees) {
+      if (!sustain.current.turnSince) sustain.current.turnSince = now;
+      if (now - sustain.current.turnSince > cfg.sustain_seconds * 1000) {
+        postFlag("head_turned", { yaw: Math.round(r.yawDeg), pitch: Math.round(r.pitchDeg) }, snap);
+        sustain.current.turnSince = 0;
+      }
+    } else {
+      sustain.current.turnSince = 0;
+    }
+  };
+
   // Part A: notifications (pre-prompt first, system prompt only on Continue)
   const [notifMsg, setNotifMsg] = useState("");
   const [notifState, setNotifState] = useState(null);
@@ -534,10 +676,66 @@ function AppInner() {
       qs = packQuestions(topicId, count);
     }
     if (!qs || !qs.length) return setMsg("No questions banked yet.");
+    let sessionId = null;
+    let config = null;
+    if (proctorArmed) {
+      // Proctored start: consent already verified in flow; server re-checks.
+      const sres = await fetch(`${API_URL}/api/exam-sessions`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ student_id: userId, exam_code: exam }),
+      }).catch(() => null);
+      if (!sres || !sres.ok) {
+        setProctorArmed(false);
+        setMsg("Proctored start blocked — complete school + parent consent first.");
+        setScreen("consent");
+        loadConsent();
+        return;
+      }
+      sessionId = (await sres.json()).id;
+      config = await fetch(`${API_URL}/api/proctor-config`).then((r) => r.json()).catch(() => null)
+        || { no_face_seconds: 10, yaw_degrees: 35, pitch_degrees: 25, sustain_seconds: 5 };
+      // Shuffle questions + options per student (server timer stays authoritative).
+      qs = [...qs].sort(() => Math.random() - 0.5).map((q) => {
+        const opts = typeof q.options === "string" ? JSON.parse(q.options) : [...q.options];
+        const order = opts.map((_, i) => i).sort(() => Math.random() - 0.5);
+        return { ...q, options: order.map((i) => opts[i]), answer_idx: order.indexOf(q.answer_idx) };
+      });
+      await setSecureScreen(true).catch(() => {});
+      sustain.current = { noFaceSince: 0, turnSince: 0 };
+      setCamIssue(false);
+      setProctor({ sessionId, config });
+    }
     setMockLabel(label); setMq(qs); setMqi(0); setMans([]);
     setMsecs(minutes * 60); setStartedAt(Date.now());
     setScreen("mockrun");
   };
+
+  // Watchers live only during a proctored run: web tab/fullscreen, native background.
+  useEffect(() => {
+    if (screen !== "mockrun" || !proctor) return;
+    const stop = watchAppState((kind) => {
+      if (kind === "backgrounded") {
+        setCamIssue(true);
+        setProctor((p) => (p ? { ...p, cameraOff: true } : p));
+        postFlag("backgrounded", {}, null);
+        fetch(`${API_URL}/api/exam-sessions/${proctor.sessionId}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ student_id: userId, camera_status: "off", needs_review: true }),
+        }).catch(() => {});
+      } else {
+        postFlag(kind, {}, null);
+      }
+    });
+    watchStop.current = stop;
+    const sweep = setInterval(() => {
+      detectionSweep().catch(() => {});
+    }, 4000);
+    return () => {
+      clearInterval(sweep);
+      if (typeof stop === "function") stop();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [screen, proctor?.sessionId]);
 
   const answerMock = (idx) => {
     const q = mq[mqi];
@@ -551,6 +749,17 @@ function AppInner() {
     const score = ans.filter((a) => a.correct).length;
     const prev = dash.mocks[0] || null;
     setMprev(prev);
+    if (proctor) {
+      // Camera off the moment the exam ends. Flags are review-only data.
+      await setSecureScreen(false).catch(() => {});
+      await fetch(`${API_URL}/api/exam-sessions/${proctor.sessionId}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ student_id: userId, camera_status: proctor.cameraOff ? "off" : "active", needs_review: camIssue }),
+      }).catch(() => {});
+      setProctor(null);
+      setProctorArmed(false);
+      setCamIssue(false);
+    }
     if (userId) {
       await fetch(`${API_URL}/api/mocks`, {
         method: "POST",
@@ -1137,6 +1346,94 @@ function AppInner() {
     );
   }
 
+  if (screen === "consent") {
+    const done = !!consentInfo?.complete;
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title="🛡 Proctored exam" subtitle="Consent first — both boxes required" color={colors.danger} />
+        <Card>
+          <Text style={{ ...type.body }}>{consentInfo?.notice?.body || "Loading the camera notice…"}</Text>
+        </Card>
+        <SectionTitle>School consent</SectionTitle>
+        <Field label="School name" value={schoolName} onChangeText={setSchoolName} placeholder="e.g. King's College Lagos" />
+        <SectionTitle>Parent / guardian consent (required for minors)</SectionTitle>
+        <Field label="Parent/guardian full name" value={parentName} onChangeText={setParentName} placeholder="Full name" />
+        <Field label="Relationship (e.g. mother, father, guardian)" value={parentRel} onChangeText={setParentRel} placeholder="mother" />
+        <Btn title={done ? "Consent complete — continue ✓" : "Save consents"} onPress={done ? () => setScreen("camPrompt") : submitConsents} />
+        {camMsg ? <Card><Text>{camMsg}</Text></Card> : null}
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
+    );
+  }
+
+  if (screen === "camPrompt") {
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title="📷 Camera access" subtitle="Only during the exam" color={colors.danger} />
+        {camState === "permanently_denied" ? (
+          <Card accent={colors.danger}>
+            <Text style={{ ...type.body, fontWeight: "800" }}>Camera is blocked in system settings.</Text>
+            <Text style={{ ...type.small, color: colors.muted }}>Without it you cannot start a proctored exam. Ask your teacher for an unproctored alternative.</Text>
+            <Btn title="Open app settings" onPress={() => { logPerm(userId, "camera", "permanently_denied", "settings_opened"); openSysSettings(); }} />
+            <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+          </Card>
+        ) : (
+          <PrePrompt
+            icon="📷"
+            title="Allow camera during exams?"
+            what="The front camera stays on while a proctored exam runs, with a red ● indicator on screen."
+            why="Short snapshots are saved only when the system raises a flag (no face, extra face, head turned). A teacher reviews flags later."
+            whenOn="Only between exam start and exam end. Off the moment you finish or leave the app."
+            notDo="No continuous video. No audio, ever. No camera use outside exams."
+            onContinue={doCamEnable}
+            onLater={() => setScreen("home")}
+          />
+        )}
+        {camMsg ? <Card><Text>{camMsg}</Text></Card> : null}
+        {camState === "denied_once" ? <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} /> : null}
+      </Screen>
+    );
+  }
+
+  if (screen === "proctorCheck") {
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title="📷 Camera check" subtitle="Face visible? Light OK? Retry freely" color={colors.danger} />
+        <Card>
+          <CameraView style={{ height: 260, borderRadius: 12 }} facing="front" onCameraReady={() => setCamReady(true)} ref={cameraRef} />
+        </Card>
+        {!camReady ? <Text style={{ ...type.small, color: colors.muted }}>Starting camera…</Text> : null}
+        <Btn title="My face is visible, lighting is OK — continue" onPress={() => { setProctorArmed(true); setScreen("mocksetup"); }} />
+        <Btn title="Retry camera" variant="ghost" onPress={() => { setCamReady(false); doCamEnable(); }} />
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
+    );
+  }
+
+  if (screen === "privacy") {
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title="🔒 Privacy & data" subtitle="What we collect and why" color={colors.text} />
+        <Card>
+          <Text style={{ ...type.body, fontWeight: "800" }}>We collect the minimum:</Text>
+          <Text style={{ ...type.small }}>• Account email + study activity (quizzes, progress, plans).{"\n"}• Device push token (only if you allow reminders).{"\n"}• Exam snapshots ONLY on proctor flags — never video, never audio.{"\n"}• Anonymous event counts (e.g. permission allowed/blocked) to fix stuck screens.</Text>
+        </Card>
+        <Card>
+          <Text style={{ ...type.body, fontWeight: "800" }}>Camera snapshots</Text>
+          <Text style={{ ...type.small }}>Short photos on flags only. Reviewers at your school can see them. Auto-deleted 30 days after results are final.</Text>
+        </Card>
+        <Card>
+          <Text style={{ ...type.small }}>Data controller: Odetunde Olumide, odetundeolumide94@gmail.com. Ask for a copy, correction, or deletion any time.</Text>
+        </Card>
+        <SectionTitle>Request deletion</SectionTitle>
+        <Field label="Reason (optional)" value={delReason} onChangeText={setDelReason} placeholder="Why are you leaving?" />
+        <Btn title="Request deletion of my data" onPress={submitDeletion} />
+        {delMsg ? <Card accent={colors.success}><Text>{delMsg}</Text></Card> : null}
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
+    );
+  }
+
   if (screen === "mocksetup") {
     const mockOptions = () => {
       if (!spec) return [];
@@ -1153,6 +1450,11 @@ function AppInner() {
     return (
       <Screen fab={tutorFab}>
         <PageHeader title={`Mock — ${exam}`} subtitle="Standard counts · real timing" color={colors.danger} />
+        {proctorArmed ? (
+          <Card accent={colors.danger}>
+            <Text style={{ fontWeight: "800" }}>🛡 Proctored — camera stays on, flags go to teacher review. Never auto-fails.</Text>
+          </Card>
+        ) : null}
         {mockOptions().map((o) => (
           <MenuRow key={o.label} icon="📝" title={o.label} subtitle={`${o.minutes} min on the clock`} color={colors.danger} onPress={() => startMock(o.label, o.count, o.minutes, o.topicId)} />
         ))}
@@ -1170,6 +1472,13 @@ function AppInner() {
     return (
       <Screen>
         <PageHeader title={mockLabel} subtitle={`Q${mqi + 1}/${mq.length}`} color={colors.danger} />
+        {proctor ? (
+          <Card accent={colors.danger}>
+            <Text style={{ fontWeight: "800", color: colors.danger }}>● REC — camera on, proctored</Text>
+            <Text style={{ ...type.small, color: colors.muted }}>Flags go to teacher review only. This exam cannot end itself.</Text>
+            <CameraView style={{ height: 140, borderRadius: 12, marginTop: spacing.sm }} facing="front" ref={cameraRef} />
+          </Card>
+        ) : null}
         <TimerPill label={`${mm}:${ss}`} />
         <ProgressBar value={mqi / mq.length} color={colors.danger} />
         <HoverCard>
@@ -1267,6 +1576,8 @@ function AppInner() {
       <MenuRow icon="✨" title="Ask AI tutor" subtitle="Knows your weak topics" color={colors.tutor} onPress={() => openTutor(null)} />
       <MenuRow icon="💬" title="Community Q&A" subtitle="Ask peers · leaderboard inside" color={colors.warning} onPress={loadPosts} />
       <MenuRow icon="📖" title="Syllabus & progress" subtitle="Departments · subjects · topic checklist" color={colors.success} onPress={loadCurrDepts} />
+      <MenuRow icon="🛡" title="Proctored exam" subtitle="Consent + camera monitored mock" color={colors.danger} onPress={openProctored} />
+      <MenuRow icon="🔒" title="Privacy & data" subtitle="Notice + deletion request" color={colors.text} onPress={() => { setDelMsg(""); setScreen("privacy"); }} />
       {weakNote ? <MenuRow icon="📘" title={`Notes: ${weakNote.name}`} subtitle="Your weakest topic" color={colors.secondary} onPress={() => openNotes(weakNote)} /> : null}
 
       {dash.badges.length > 0 ? (

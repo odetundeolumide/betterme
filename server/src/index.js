@@ -899,4 +899,14 @@ async function currRequireUserSafe(userId, res) {
   return true;
 }
 
+// ---- Part C: privacy (notice content lives in-app; requests land here) ----
+
+// In-app deletion request for the controller to action (Q12).
+app.post("/api/deletion-requests", async (req, res) => {
+  const { user_id, reason } = req.body || {};
+  if (!(await currRequireUserSafe(user_id, res))) return;
+  await pool.query("INSERT INTO deletion_requests (student_id, reason) VALUES ($1,$2)", [user_id, reason || ""]);
+  res.json({ ok: true });
+});
+
 app.listen(PORT, () => console.log(`betterme-server on http://localhost:${PORT}`));

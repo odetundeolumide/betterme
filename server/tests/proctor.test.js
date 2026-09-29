@@ -74,6 +74,19 @@ test("config + retention endpoints answer", async () => {
   assert.ok(typeof (await p.json()).deleted === "number");
 });
 
+test("deletion requests: known student ok, unknown student 404", async () => {
+  let r = await fetch(`${API}/api/deletion-requests`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: "test-proctor-user", reason: "leaving" }),
+  });
+  assert.equal(r.status, 200);
+  r = await fetch(`${API}/api/deletion-requests`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: "ghost-user", reason: "x" }),
+  });
+  assert.equal(r.status, 404);
+});
+
 test("session patch: owner-only, validates camera_status", async () => {
   const patch = (id, b) => fetch(`${API}/api/exam-sessions/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
   let r = await patch(sessionId, { student_id: O, camera_status: "active" });
@@ -88,6 +101,7 @@ after(async () => {
   await pool.query("DELETE FROM proctor_flags WHERE session_id IN (SELECT id FROM exam_sessions WHERE student_id LIKE 'test-proctor-%')");
   await pool.query("DELETE FROM exam_sessions WHERE student_id LIKE 'test-proctor-%'");
   await pool.query("DELETE FROM consents WHERE student_id LIKE 'test-proctor-%'");
+  await pool.query("DELETE FROM deletion_requests WHERE student_id LIKE 'test-proctor-%'");
   await pool.query('DELETE FROM "user" WHERE id LIKE \'test-proctor-%\'');
   await pool.end();
 });
