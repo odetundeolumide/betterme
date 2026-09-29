@@ -20,7 +20,7 @@ Recorded instead of guessed. Nothing here is decided until answered.
 9. **Detection thresholds — ANSWERED: one global default** (no-face 10s, yaw 35°, pitch 25°, sustain 5s). Stored server-side so per-exam overrides can be added later without app changes.
 
 ## Legal/ownership (see docs/privacy_checklist.md once created)
-10. Who is the data controller contact for the privacy notice and deletion requests?
+10. **Data controller — ANSWERED: Odetunde Olumide, odetundeolumide94@gmail.com.** Used in privacy notice + deletion contact.
 11. NDPC registration, DPIA owner, and parental-consent wording reviewer — who?
 12. Deletion request path: in-app form only, or also an email address?
 
