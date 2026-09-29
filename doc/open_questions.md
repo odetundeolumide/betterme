@@ -2,8 +2,11 @@
 
 Recorded instead of guessed. Nothing here is decided until answered.
 
-## Must answer before Part A code
-1. **Firebase project**: who creates/owns it? Need project ID, `google-services.json` (Android), Web Push key pair (VAPID), and a service-account key for the server. Without these, no FCM on either platform.
+## Firebase credentials received (Q1, in progress)
+- Project ID: `betterme-b2856` (number 935522103594) ✅
+- Android: `com.odetundeolumide.betterme`, `google-services.json` wired at `app/` (git-ignored) ✅
+- Web app registered ("My web betterme"); `firebaseConfig` received 2026-09-29 (public browser keys; full object held in chat, to be placed in env at implementation time) ✅
+- STILL NEEDED: VAPID public key (Cloud Messaging → Web Push certificates) + service-account JSON (Service accounts tab).
 2. **Fallback channel**: cheapest available option — email (needs SMTP host/user/pass), SMS (needs paid gateway account), or WhatsApp (needs Business API)? Pick one and provide credentials. Default proposal: in-app reminders first, email fallback second.
 3. **Exact alarms**: true `AlarmManager` exact timing needs a dev-build native module (Expo managed + `expo-notifications` only does inexact scheduling). Accept inexact (≈15-min windows) for study reminders, or approve building a small native module?
 4. **Local dev HTTPS**: web push needs HTTPS (localhost excepted). Production domain for VAPID/audience?
