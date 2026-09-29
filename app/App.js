@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, Button, FlatList, TouchableOpacity, ScrollView } from "react-native";
-import { colors, spacing, type, difficultyColor } from "./theme";
-import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow } from "./components";
+import { View, Text } from "react-native";
+import { colors, spacing, type } from "./theme";
+import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow, Screen, PageHeader, HoverCard, MenuRow, EmptyState, Field } from "./components";
 import { savePack, loadPack, queueAttempt, pendingAttempts, dropQueued, pendingCount, uuid } from "./offline";
 
 // Shows errors on screen instead of a blank page
@@ -449,70 +449,79 @@ function AppInner() {
 
   if (screen === "auth") {
     return (
-      <View style={{ padding: 24, gap: 8 }}>
-        <Text style={{ fontSize: 24, fontWeight: "700" }}>BetterMe</Text>
-        <Text>Sign in to start your diagnostic.</Text>
-        <Text style={{ color: colors.muted, fontSize: 11 }}>build 2026-09-29c</Text>
-        <TextInput placeholder="Email" value={email} onChangeText={setEmail} style={{ borderWidth: 1, padding: 8 }} />
-        <TextInput placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} style={{ borderWidth: 1, padding: 8 }} />
-        <Button title="Sign up" onPress={() => callAuth("sign-up")} />
-        <Button title="Sign in" onPress={() => callAuth("sign-in")} />
-        {msg ? <Text>{msg}</Text> : null}
-      </View>
+      <Screen>
+        <PageHeader title="🎓 BetterMe" subtitle="Free WAEC · TOEFL · SAT · GRE prep" color={colors.secondary} />
+        <Card>
+          <Text style={{ ...type.body, color: colors.muted }}>Sign in to start your diagnostic and find your weak topics.</Text>
+        </Card>
+        <Field label="Email" placeholder="you@example.com" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+        <Field label="Password" placeholder="••••••••" secureTextEntry value={password} onChangeText={setPassword} />
+        <Btn title="Create free account" onPress={() => callAuth("sign-up")} />
+        <Btn title="Sign in" variant="ghost" onPress={() => callAuth("sign-in")} />
+        {msg ? <Card accent={colors.danger}><Text style={{ color: colors.danger }}>{msg}</Text></Card> : null}
+        <Text style={{ ...type.tiny, color: colors.muted, textAlign: "center" }}>build 2026-09-29c · free forever · works offline</Text>
+      </Screen>
     );
   }
+
+  const EXAM_META = {
+    WAEC: { icon: "📚", desc: "Secondary school · Science / Art / Commerce" },
+    TOEFL: { icon: "✈️", desc: "Study abroad · Reading + Listening" },
+    SAT: { icon: "🎓", desc: "US college · 98Q full paper" },
+    GRE: { icon: "📊", desc: "Postgraduate · 54Q + writing excluded" },
+  };
 
   if (screen === "exams") {
     return (
-      <View style={{ padding: 24, gap: 8 }}>
-        <Text style={{ fontSize: 20, fontWeight: "700" }}>Choose your exam</Text>
+      <Screen>
+        <PageHeader title="Choose your exam" subtitle="Progress is saved separately per exam" color={colors.primary} />
         {EXAMS.map((e) => (
-          <Button key={e} title={e} onPress={() => pickExam(e)} />
+          <MenuRow key={e} icon={EXAM_META[e].icon} title={e} subtitle={EXAM_META[e].desc} color={colors.primary} onPress={() => pickExam(e)} />
         ))}
-      </View>
+      </Screen>
     );
   }
 
+  const DEPT_META = {
+    Science: { icon: "🔬", desc: "Physics · Chemistry · Biology + 2" },
+    Art: { icon: "🎭", desc: "Literature · Government · History + 2" },
+    Commerce: { icon: "💼", desc: "Economics · Accounting · Marketing + 2" },
+  };
+
   if (screen === "dept") {
     return (
-      <View style={{ padding: 24, gap: 8 }}>
-        <Text style={{ fontSize: 20, fontWeight: "700" }}>WAEC — choose department</Text>
-        <Text style={{ color: colors.muted }}>English, Mathematics + Civic are general for all.</Text>
-        {["Science", "Art", "Commerce"].map((d) => (
-          <Button key={d} title={d} onPress={() => pickDept(d)} />
+      <Screen>
+        <PageHeader title="Your department?" subtitle="English, Mathematics + Civic come free with all" color={colors.primary} />
+        {Object.entries(DEPT_META).map(([d, m]) => (
+          <MenuRow key={d} icon={m.icon} title={d} subtitle={m.desc} color={colors.primary} onPress={() => pickDept(d)} />
         ))}
-      </View>
+      </Screen>
     );
   }
 
   if (screen === "design") {
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg, gap: spacing.sm }}>
-          <Text style={type.h1}>Design system</Text>
-          <Text style={{ color: colors.muted }}>Tokens + components. Tap Home to go back.</Text>
-          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
-          <SectionTitle>Colors</SectionTitle>
-          <View style={{ flexDirection: "row", gap: spacing.sm }}>
-            {[colors.primary, colors.success, colors.warning, colors.danger, colors.tutor].map((c) => (
-              <View key={c} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: c }} />
-            ))}
-          </View>
-          <SectionTitle>Buttons / Cards / Badges</SectionTitle>
-          <Btn title="Primary button" onPress={() => {}} />
-          <Btn title="Ghost button" variant="ghost" onPress={() => {}} />
-          <Card>
-            <Text style={type.h2}>Quiz review card</Text>
-            <Text style={{ color: colors.muted }}>Algebra · difficulty <Text style={{ color: difficultyColor(3), fontWeight: "700" }}>hard</Text></Text>
-            <ProgressBar value={0.67} />
-          </Card>
-          <View style={{ flexDirection: "row", gap: spacing.sm }}>
-            <Badge label="NEW" />
-            <Badge label="WEAK" color={colors.danger} />
-            <Badge label="TUTOR" color={colors.tutor} />
-          </View>
+      <Screen>
+        <PageHeader title="Design system" subtitle="Tokens + components" color={colors.text} />
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+        <SectionTitle>Colors</SectionTitle>
+        <View style={{ flexDirection: "row", gap: spacing.sm }}>
+          {[colors.primary, colors.secondary, colors.accent, colors.success, colors.danger, colors.tutor].map((c) => (
+            <View key={c} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: c, ...shadow.card }} />
+          ))}
         </View>
-      </ScrollView>
+        <SectionTitle>Hover me 👇</SectionTitle>
+        <HoverCard onPress={() => {}}>
+          <Text style={type.h2}>Hover card</Text>
+          <Text style={{ color: colors.muted }}>Lifts + deepens shadow on hover (web).</Text>
+          <ProgressBar value={0.67} />
+        </HoverCard>
+        <View style={{ flexDirection: "row", gap: spacing.sm }}>
+          <Badge label="NEW" />
+          <Badge label="WEAK" color={colors.danger} />
+          <Badge label="TUTOR" color={colors.tutor} />
+        </View>
+      </Screen>
     );
   }
 
@@ -520,19 +529,17 @@ function AppInner() {
     const q = quiz[qi];
     const opts = typeof q.options === "string" ? JSON.parse(q.options) : q.options;
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h2}>Diagnostic {qi + 1}/{quiz.length}</Text>
-          <Text style={{ color: colors.muted }}>Level <Text style={{ color: difficultyColor(q.difficulty), fontWeight: "800" }}>{q.difficulty}</Text> · adaptive</Text>
-          <Card>
-            <Text style={{ fontSize: 16, fontWeight: "700" }}>{q.stem}</Text>
-          </Card>
-          {opts.map((o, i) => (
-            <Btn key={i} title={o} variant="ghost" onPress={() => answerQuiz(i)} />
-          ))}
-          <Btn title="⏸ Pause & continue later" variant="ghost" onPress={pauseQuiz} />
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title={`Diagnostic ${qi + 1}/${quiz.length}`} subtitle={`Adaptive · level ${q.difficulty}`} color={colors.tutor} />
+        <ProgressBar value={qi / quiz.length} color={colors.tutor} />
+        <HoverCard>
+          <Text style={{ fontSize: 17, fontWeight: "700", lineHeight: 24 }}>{q.stem}</Text>
+        </HoverCard>
+        {opts.map((o, i) => (
+          <Btn key={i} title={o} variant="ghost" onPress={() => answerQuiz(i)} />
+        ))}
+        <Btn title="⏸ Pause & continue later" variant="ghost" onPress={pauseQuiz} />
+      </Screen>
     );
   }
 
@@ -548,21 +555,18 @@ function AppInner() {
     });
     const weak = Object.entries(perTopic).sort((a, b) => a[1].ok / a[1].n - b[1].ok / b[1].n)[0];
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h1}>Results: {score}/{answers.length}</Text>
-          {Object.entries(perTopic).map(([name, v]) => (
-            <Card key={name}>
-              <Text style={{ fontWeight: "700" }}>{name}: {v.ok}/{v.n}</Text>
-              <ProgressBar value={v.ok / v.n} color={v.ok / v.n >= 0.6 ? colors.success : colors.danger} />
-            </Card>
-          ))}
-          {weak ? <Text>Weakest: <Text style={{ fontWeight: "800" }}>{weak[0]}</Text> — practice it next.</Text> : null}
-          <Btn title="Practice weakest topic →" onPress={() => { const t = topics.find((x) => x.name === weak[0]); if (t) startPractice(t); }} />
-          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
-          {msg ? <Text>{msg}</Text> : null}
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title={`Results: ${score}/${answers.length}`} subtitle={weak ? `Weakest: ${weak[0]} — practice it next` : "Diagnostic complete"} color={score / Math.max(answers.length, 1) >= 0.6 ? colors.success : colors.warning} />
+        {Object.entries(perTopic).map(([name, v]) => (
+          <HoverCard key={name}>
+            <Text style={{ fontWeight: "800", fontSize: 15 }}>{name}: {v.ok}/{v.n}</Text>
+            <ProgressBar value={v.ok / v.n} color={v.ok / v.n >= 0.6 ? colors.success : colors.danger} />
+          </HoverCard>
+        ))}
+        <Btn title="Practice weakest topic →" onPress={() => { const t = topics.find((x) => x.name === weak[0]); if (t) startPractice(t); }} />
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+        {msg ? <Text>{msg}</Text> : null}
+      </Screen>
     );
   }
 
@@ -572,60 +576,60 @@ function AppInner() {
     const mm = String(Math.floor(secs / 60)).padStart(2, "0");
     const ss = String(secs % 60).padStart(2, "0");
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h2}>{ptopic.name} {pqi + 1}/{pq.length}</Text>
-          <Text style={{ fontWeight: "800" }}>⏱ {mm}:{ss}</Text>
-          <ProgressBar value={pqi / pq.length} />
-          <Card><Text style={{ fontSize: 16, fontWeight: "700" }}>{q.stem}</Text></Card>
-          {opts.map((o, i) => (
-            <Btn key={i} title={o} variant="ghost" onPress={() => answerPractice(i)} />
-          ))}
-          <Btn title="📘 Read notes first" variant="ghost" onPress={() => openNotes(ptopic)} />
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title={`${ptopic.name} ${pqi + 1}/${pq.length}`} subtitle="Standard 10Q drill" color={colors.primary} />
+        <TimerPill label={`${mm}:${ss}`} />
+        <ProgressBar value={pqi / pq.length} />
+        <HoverCard>
+          <Text style={{ fontSize: 17, fontWeight: "700", lineHeight: 24 }}>{q.stem}</Text>
+        </HoverCard>
+        {opts.map((o, i) => (
+          <Btn key={i} title={o} variant="ghost" onPress={() => answerPractice(i)} />
+        ))}
+        <Btn title="📘 Read notes first" variant="ghost" onPress={() => openNotes(ptopic)} />
+      </Screen>
     );
   }
 
   if (screen === "review") {
     const score = pans.filter((a) => a.correct).length;
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h1}>Practice: {score}/{pans.length}</Text>
-          {pans.map((a, i) => {
-            const opts = typeof a.q.options === "string" ? JSON.parse(a.q.options) : a.q.options;
-            return (
-              <Card key={i} accent={a.correct ? colors.success : colors.danger}>
-                <Text style={{ fontWeight: "700" }}>Q{i + 1}. {a.q.stem}</Text>
-                <Text>You: {opts[a.picked]} {a.correct ? "✅" : "❌"}</Text>
-                {!a.correct ? <Text>Answer: {opts[a.q.answer_idx]}</Text> : null}
-                <Text style={{ color: colors.muted }}>{a.q.explanation}</Text>
-                <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm }}>
-                  <View style={{ flex: 1 }}><Btn title="✨ Ask tutor" variant="ghost" onPress={() => openTutor(a.q)} /></View>
-                  <View style={{ flex: 1 }}><Btn title="🚩 Report" variant="ghost" onPress={() => reportQ(a.q.id)} /></View>
-                </View>
-              </Card>
-            );
-          })}
-          {msg ? <Text>{msg}</Text> : null}
-          <Btn title="📘 Topic notes" onPress={() => openNotes(ptopic)} />
-          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title={`Practice: ${score}/${pans.length}`} subtitle={score / Math.max(pans.length, 1) >= 0.7 ? "Solid work 🎉" : "Review the misses below"} color={score / Math.max(pans.length, 1) >= 0.7 ? colors.success : colors.primary} />
+        {pans.map((a, i) => {
+          const opts = typeof a.q.options === "string" ? JSON.parse(a.q.options) : a.q.options;
+          return (
+            <HoverCard key={i} accent={a.correct ? colors.success : colors.danger}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.xs }}>
+                <Badge label={a.correct ? "✓ CORRECT" : "✗ MISSED"} color={a.correct ? colors.success : colors.danger} />
+                <Text style={{ ...type.small, color: colors.muted }}>Q{i + 1}</Text>
+              </View>
+              <Text style={{ fontWeight: "700", fontSize: 15 }}>{a.q.stem}</Text>
+              <Text style={{ ...type.small }}>You: {opts[a.picked]}</Text>
+              {!a.correct ? <Text style={{ ...type.small, fontWeight: "800", color: colors.success }}>Answer: {opts[a.q.answer_idx]}</Text> : null}
+              <Text style={{ ...type.small, color: colors.muted, marginTop: spacing.xs }}>{a.q.explanation}</Text>
+              <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm }}>
+                <View style={{ flex: 1 }}><Btn title="✨ Tutor" variant="ghost" onPress={() => openTutor(a.q)} /></View>
+                <View style={{ flex: 1 }}><Btn title="🚩 Report" variant="ghost" onPress={() => reportQ(a.q.id)} /></View>
+              </View>
+            </HoverCard>
+          );
+        })}
+        {msg ? <Card accent={colors.success}><Text>{msg}</Text></Card> : null}
+        <Btn title="📘 Topic notes" onPress={() => openNotes(ptopic)} />
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
     );
   }
 
   if (screen === "notes") {
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h1}>📘 {ptopic ? ptopic.name : "Notes"}</Text>
-          <Card><Text>{note ? note.body_md : "Loading…"}</Text></Card>
-          {ptopic ? <Btn title="Practice this topic →" onPress={() => startPractice(ptopic)} /> : null}
-          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title={`📘 ${ptopic ? ptopic.name : "Notes"}`} subtitle="Key ideas & formulas" color={colors.secondary} />
+        <HoverCard><Text style={{ ...type.body }}>{note ? note.body_md : "Loading…"}</Text></HoverCard>
+        {ptopic ? <Btn title="Practice this topic →" onPress={() => startPractice(ptopic)} /> : null}
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
     );
   }
 
@@ -633,98 +637,81 @@ function AppInner() {
     const sug = tutorCtx?.suggestion;
     const sugTopic = sug ? topics.find((t) => t.id === sug.topic_id) : null;
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h1}>✨ AI tutor</Text>
-          {tutorCtx ? (
-            <Text style={{ color: colors.muted }}>
-              Knows: weak {tutorCtx.weakTopics?.map((w) => w.name).join(", ") || "none yet"}
-              {tutorCtx.examDate ? ` · exam ${tutorCtx.examDate}` : ""}
-            </Text>
-          ) : null}
-          {tutorQ ? <Card accent={colors.tutor}><Text style={{ fontWeight: "700" }}>About: {tutorQ.stem}</Text></Card> : null}
-          {chat.map((m, i) => (
-            <ChatBubble key={i} from={m.from} text={m.text} />
-          ))}
-          {tsending ? <Text style={{ color: colors.muted }}>Tutor is thinking…</Text> : null}
-          {sug && sugTopic ? (
-            <Card accent={colors.tutor}>
-              <Text style={{ fontWeight: "800" }}>Practice next → {sugTopic.name}</Text>
-              <Btn title="Start drill" onPress={() => startPractice(sugTopic)} />
-            </Card>
-          ) : null}
-          <TextInput value={tmsg} onChangeText={setTmsg} placeholder="Ask, e.g. explain this again simply" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8, marginTop: spacing.sm }} />
-          <Btn title="Send" onPress={() => askTutor()} />
-          <Btn title="Explain simply" variant="ghost" onPress={() => askTutor("explain this again in a simpler way")} />
-          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title="✨ AI tutor" subtitle={tutorCtx ? `Knows your weak spots${tutorCtx.examDate ? ` · exam ${tutorCtx.examDate}` : ""}` : "Ask anything"} color={colors.tutor} />
+        {tutorQ ? <Card accent={colors.tutor}><Text style={{ fontWeight: "700" }}>About: {tutorQ.stem}</Text></Card> : null}
+        {chat.length === 0 ? <EmptyState icon="💬" text="Ask e.g. “explain this again in a simpler way”" /> : null}
+        {chat.map((m, i) => (
+          <ChatBubble key={i} from={m.from} text={m.text} />
+        ))}
+        {tsending ? <Text style={{ color: colors.muted }}>Tutor is thinking…</Text> : null}
+        {sug && sugTopic ? (
+          <HoverCard accent={colors.tutor}>
+            <Text style={{ fontWeight: "800" }}>Practice next → {sugTopic.name}</Text>
+            <Btn title="Start drill" onPress={() => startPractice(sugTopic)} />
+          </HoverCard>
+        ) : null}
+        <Field label="Your question" value={tmsg} onChangeText={setTmsg} placeholder="Ask, e.g. explain this again simply" />
+        <Btn title="Send" onPress={() => askTutor()} />
+        <Btn title="Explain simply" variant="ghost" onPress={() => askTutor("explain this again in a simpler way")} />
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
     );
   }
 
   if (screen === "community") {
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h1}>Community — {exam}</Text>
-          <Text style={{ color: colors.muted }}>One shared feed, filtered by exam.</Text>
-          <SectionTitle>Ask a question</SectionTitle>
-          <TextInput value={newTitle} onChangeText={setNewTitle} placeholder="Title, e.g. Why is (x−2)(x−3)=0?" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8 }} />
-          <TextInput value={newBody} onChangeText={setNewBody} placeholder="Details (optional)" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8, marginTop: spacing.sm }} />
-          <Btn title="Post" onPress={submitPost} />
-          <SectionTitle>Questions</SectionTitle>
-          {posts.length === 0 ? <Text style={{ color: colors.muted }}>No questions yet — be the first.</Text> : null}
-          {posts.map((p) => (
-            <TouchableOpacity key={p.id} onPress={() => openPost(p.id)}>
-              <Card>
-                <Text style={{ fontWeight: "700" }}>{p.title}</Text>
-                <Text style={{ color: colors.muted }}>{p.user_id} · {p.topic_name || p.exam_code} · {p.answers} answers</Text>
-              </Card>
-            </TouchableOpacity>
-          ))}
-          <Btn title="🏆 Leaderboard" onPress={loadBoard} />
-          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title={`Community — ${exam}`} subtitle="One shared feed, filtered by exam" color={colors.warning} />
+        <SectionTitle>Ask a question</SectionTitle>
+        <Field label="Title" value={newTitle} onChangeText={setNewTitle} placeholder="e.g. Why is (x−2)(x−3)=0?" />
+        <Field label="Details (optional)" value={newBody} onChangeText={setNewBody} placeholder="Show your working…" />
+        <Btn title="Post question" onPress={submitPost} />
+        <SectionTitle>Questions</SectionTitle>
+        {posts.length === 0 ? <EmptyState icon="💭" text="No questions yet — be the first." /> : null}
+        {posts.map((p) => (
+          <HoverCard key={p.id} onPress={() => openPost(p.id)}>
+            <Text style={{ fontWeight: "800", fontSize: 15 }}>{p.title}</Text>
+            <Text style={{ ...type.small, color: colors.muted }}>{p.user_id} · {p.topic_name || p.exam_code} · {p.answers} answers ›</Text>
+          </HoverCard>
+        ))}
+        <Btn title="🏆 Leaderboard" variant="blue" onPress={loadBoard} />
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
     );
   }
 
   if (screen === "post" && postDetail) {
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h1}>{postDetail.title}</Text>
-          <Text style={{ color: colors.muted }}>{postDetail.user_id} · {postDetail.topic_name || postDetail.exam_code}</Text>
-          {postDetail.body ? <Card><Text>{postDetail.body}</Text></Card> : null}
-          <SectionTitle>Answers ({postDetail.answers.length})</SectionTitle>
-          {postDetail.answers.map((a) => (
-            <Card key={a.id} accent={a.is_accepted ? colors.success : colors.border}>
-              <Text>{a.is_accepted ? "✅ " : ""}{a.body}</Text>
-              <Text style={{ color: colors.muted }}>— {a.user_id}</Text>
-              {!a.is_accepted ? <Btn title="Accept ✓" variant="ghost" onPress={() => acceptAnswer(a.id)} /> : null}
-            </Card>
-          ))}
-          <TextInput value={answerBody} onChangeText={setAnswerBody} placeholder="Write your answer…" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8 }} />
-          <Btn title="Answer" onPress={submitAnswer} />
-          <Btn title="🚩 Report post" variant="ghost" onPress={() => fetch(`${API_URL}/api/posts/${postDetail.id}/report`, { method: "POST" }).then(() => setScreen("community"))} />
-          <Btn title="← Back" variant="ghost" onPress={loadPosts} />
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title="Question" subtitle={`${postDetail.user_id} · ${postDetail.topic_name || postDetail.exam_code}`} color={colors.warning} />
+        <HoverCard><Text style={{ ...type.h2 }}>{postDetail.title}</Text>{postDetail.body ? <Text style={{ ...type.body, marginTop: spacing.xs }}>{postDetail.body}</Text> : null}</HoverCard>
+        <SectionTitle>Answers ({postDetail.answers.length})</SectionTitle>
+        {postDetail.answers.map((a) => (
+          <HoverCard key={a.id} accent={a.is_accepted ? colors.success : colors.border}>
+            <Text style={{ ...type.body }}>{a.is_accepted ? "✅ " : ""}{a.body}</Text>
+            <Text style={{ ...type.small, color: colors.muted }}>— {a.user_id}</Text>
+            {!a.is_accepted ? <Btn title="Accept ✓" variant="ghost" onPress={() => acceptAnswer(a.id)} /> : null}
+          </HoverCard>
+        ))}
+        <Field label="Your answer" value={answerBody} onChangeText={setAnswerBody} placeholder="Write your answer…" />
+        <Btn title="Answer" onPress={submitAnswer} />
+        <Btn title="🚩 Report post" variant="ghost" onPress={() => fetch(`${API_URL}/api/posts/${postDetail.id}/report`, { method: "POST" }).then(() => setScreen("community"))} />
+        <Btn title="← Back" variant="ghost" onPress={loadPosts} />
+      </Screen>
     );
   }
 
   if (screen === "board") {
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h1}>🏆 Leaderboard — {exam}</Text>
-          {board.board.length === 0 ? <Text style={{ color: colors.muted }}>No quiz scores yet. Finish a quiz to rank.</Text> : null}
-          {board.board.map((b) => (
-            <LeaderRow key={b.rank} rank={b.rank} name={b.user} score={`${b.total} pts · ${b.quizzes} quizzes`} you={b.you} />
-          ))}
-          <Btn title="← Back" variant="ghost" onPress={() => setScreen("community")} />
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title={`🏆 Leaderboard`} subtitle={`${exam} · by quiz scores`} color={colors.warning} />
+        {board.board.length === 0 ? <EmptyState icon="🏁" text="No quiz scores yet. Finish a quiz to rank." /> : null}
+        {board.board.map((b) => (
+          <LeaderRow key={b.rank} rank={b.rank} name={b.user} score={`${b.total} pts · ${b.quizzes} quizzes`} you={b.you} />
+        ))}
+        <Btn title="← Back" variant="ghost" onPress={() => setScreen("community")} />
+      </Screen>
     );
   }
 
@@ -742,17 +729,14 @@ function AppInner() {
       return [{ label: `Full paper · ${total.questions}Q in ${total.minutes} min`, count: total.questions, minutes: total.minutes, topicId: null }];
     };
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h1}>Mock exam — {exam}</Text>
-          <Text style={{ color: colors.muted }}>Standard counts. Bank shortfall will be shown.</Text>
-          {mockOptions().map((o) => (
-            <Btn key={o.label} title={o.label} onPress={() => startMock(o.label, o.count, o.minutes, o.topicId)} />
-          ))}
-          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
-          {msg ? <Text>{msg}</Text> : null}
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title={`Mock — ${exam}`} subtitle="Standard counts · real timing" color={colors.danger} />
+        {mockOptions().map((o) => (
+          <MenuRow key={o.label} icon="📝" title={o.label} subtitle={`${o.minutes} min on the clock`} color={colors.danger} onPress={() => startMock(o.label, o.count, o.minutes, o.topicId)} />
+        ))}
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+        {msg ? <Card accent={colors.danger}><Text style={{ color: colors.danger }}>{msg}</Text></Card> : null}
+      </Screen>
     );
   }
 
@@ -762,17 +746,17 @@ function AppInner() {
     const mm = String(Math.floor(msecs / 60)).padStart(2, "0");
     const ss = String(msecs % 60).padStart(2, "0");
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h2}>{mockLabel}</Text>
-          <Text style={{ fontWeight: "800" }}>Q{mqi + 1}/{mq.length} · ⏱ {mm}:{ss}</Text>
-          <ProgressBar value={mqi / mq.length} color={colors.danger} />
-          <Card><Text style={{ fontSize: 16, fontWeight: "700" }}>{q.stem}</Text></Card>
-          {opts.map((o, i) => (
-            <Btn key={i} title={o} variant="ghost" onPress={() => answerMock(i)} />
-          ))}
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title={mockLabel} subtitle={`Q${mqi + 1}/${mq.length}`} color={colors.danger} />
+        <TimerPill label={`${mm}:${ss}`} />
+        <ProgressBar value={mqi / mq.length} color={colors.danger} />
+        <HoverCard>
+          <Text style={{ fontSize: 17, fontWeight: "700", lineHeight: 24 }}>{q.stem}</Text>
+        </HoverCard>
+        {opts.map((o, i) => (
+          <Btn key={i} title={o} variant="ghost" onPress={() => answerMock(i)} />
+        ))}
+      </Screen>
     );
   }
 
@@ -780,42 +764,40 @@ function AppInner() {
     const score = mans.filter((a) => a.correct).length;
     const delta = mprev ? score / mans.length - mprev.score / Math.max(mprev.total, 1) : null;
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h1}>Mock: {score}/{mans.length}</Text>
-          {mprev ? (
-            <Card>
-              <Text>Previous: {mprev.score}/{mprev.total} ({mprev.label})</Text>
-              <Text style={{ fontWeight: "800", color: delta >= 0 ? colors.success : colors.danger }}>
-                {delta >= 0 ? "▲ improving" : "▼ slipped"} ({(delta * 100).toFixed(0)} pts)
-              </Text>
-            </Card>
-          ) : <Text style={{ color: colors.muted }}>First mock — this is your baseline.</Text>}
-          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title={`Mock: ${score}/${mans.length}`} subtitle={mprev ? "vs your last mock" : "Baseline set — beat it next time"} color={mprev && delta >= 0 ? colors.success : colors.danger} />
+        {mprev ? (
+          <HoverCard accent={delta >= 0 ? colors.success : colors.danger}>
+            <Text style={{ ...type.small, color: colors.muted }}>Previous: {mprev.score}/{mprev.total} ({mprev.label})</Text>
+            <Text style={{ ...type.h1, color: delta >= 0 ? colors.success : colors.danger }}>
+              {delta >= 0 ? "▲ improving" : "▼ slipped"} ({(delta * 100).toFixed(0)} pts)
+            </Text>
+          </HoverCard>
+        ) : <EmptyState icon="📝" text="First mock — this is your baseline." />}
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
     );
   }
 
   if (screen === "progress") {
     return (
-      <ScrollView style={{ backgroundColor: colors.bg }}>
-        <View style={{ padding: spacing.lg }}>
-          <Text style={type.h1}>Progress — {exam}</Text>
-          {dash.progress.length === 0 ? <Text style={{ color: colors.muted }}>No attempts yet. Take the diagnostic first.</Text> : null}
-          {dash.progress.map((p) => (
-            <Card key={p.topic_id}>
-              <Text style={{ fontWeight: "700" }}>{p.name} · {p.attempts} tries · avg {(p.avg * 100).toFixed(0)}%</Text>
-              <ProgressBar value={p.avg} color={p.avg >= 0.6 ? colors.success : colors.danger} />
-            </Card>
-          ))}
-          <Text style={type.h2}>Mocks</Text>
-          {dash.mocks.map((m) => (
-            <Text key={m.id}>- {m.label}: {m.score}/{m.total}</Text>
-          ))}
-          <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
-        </View>
-      </ScrollView>
+      <Screen>
+        <PageHeader title={`Progress — ${exam}`} subtitle="Per-topic averages across all attempts" color={colors.success} />
+        {dash.progress.length === 0 ? <EmptyState icon="📈" text="No attempts yet. Take the diagnostic first." /> : null}
+        {dash.progress.map((p) => (
+          <HoverCard key={p.topic_id}>
+            <Text style={{ fontWeight: "800", fontSize: 15 }}>{p.name}</Text>
+            <Text style={{ ...type.small, color: colors.muted }}>{p.attempts} tries · avg {(p.avg * 100).toFixed(0)}%</Text>
+            <ProgressBar value={p.avg} color={p.avg >= 0.6 ? colors.success : colors.danger} />
+          </HoverCard>
+        ))}
+        <SectionTitle>Mock history</SectionTitle>
+        {dash.mocks.length === 0 ? <Text style={{ ...type.small, color: colors.muted }}>No mocks yet.</Text> : null}
+        {dash.mocks.map((m) => (
+          <Text key={m.id} style={{ ...type.small }}>• {m.label}: {m.score}/{m.total}</Text>
+        ))}
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
     );
   }
 
@@ -830,47 +812,53 @@ function AppInner() {
   const weakNote = dash.plan[0] ? topics.find((t) => t.id === dash.plan[0].topic_id) : null;
 
   return (
-    <ScrollView style={{ backgroundColor: colors.bg }}>
-    <View style={{ padding: 24, gap: 8 }}>
-      <Text style={{ fontSize: 20, fontWeight: "700" }}>Home — {exam}{exam === "WAEC" && dept ? ` · ${dept}` : ""}</Text>
+    <Screen>
+      <PageHeader title={`👋 ${exam}${exam === "WAEC" && dept ? ` · ${dept}` : ""}`} subtitle={daysLeft !== null ? `⏳ ${daysLeft} days to exam${dash.eprog.target ? ` · target ${dash.eprog.target}` : ""}` : "Pick a drill below to keep improving"} color={colors.success} />
       {offlineMode ? <Badge label="OFFLINE MODE" color={colors.text} /> : null}
-      <Button title="⬇ Download pack for offline" onPress={downloadPack} />
-      {pending > 0 ? <Button title={`⬆ Sync ${pending} offline result${pending > 1 ? "s" : ""}`} onPress={syncNow} /> : null}
-      {daysLeft !== null ? <Card><Text style={{ fontWeight: "800" }}>⏳ {daysLeft} days to exam{dash.eprog.target ? ` · target ${dash.eprog.target}` : ""}</Text></Card> : null}
-      <Button title="Start diagnostic test" onPress={startDiagnostic} />
-      <Button title="Full mock exam" onPress={() => setScreen("mocksetup")} />
-      <Button title="My progress" onPress={() => setScreen("progress")} />
-      {draft ? <Button title="Continue where you left off" onPress={() => { setQuiz(draft.quiz); setQi(draft.qi); setAnswers(draft.answers); setTarget(draft.target); setStreak(draft.streak); setScreen("quiz"); }} /> : null}
-      {dash.plan.length > 0 ? (
-        <Card accent={colors.success}>
-          <Text style={{ fontWeight: "800" }}>This week 🎯 fix weakest:</Text>
-          {dash.plan.map((p) => <Text key={p.topic_id}>- {p.name} ×{p.drills} drills</Text>)}
-        </Card>
+      {msg ? <Card accent={colors.primary}><Text>{msg}</Text></Card> : null}
+
+      {draft ? (
+        <HoverCard accent={colors.primary} onPress={() => { setQuiz(draft.quiz); setQi(draft.qi); setAnswers(draft.answers); setTarget(draft.target); setStreak(draft.streak); setScreen("quiz"); }}>
+          <Text style={{ fontWeight: "800", fontSize: 15 }}>▶ Continue where you left off</Text>
+          <Text style={{ ...type.small, color: colors.muted }}>Resume your paused diagnostic ›</Text>
+        </HoverCard>
       ) : null}
+
+      <SectionTitle>Start</SectionTitle>
+      <MenuRow icon="🎯" title="Diagnostic test" subtitle="15Q adaptive · find your level" color={colors.tutor} onPress={startDiagnostic} />
+      <MenuRow icon="📝" title="Full mock exam" subtitle="Standard counts · real timing" color={colors.danger} onPress={() => setScreen("mocksetup")} />
+      <MenuRow icon="📈" title="My progress" subtitle="Per-topic trends + mock history" color={colors.success} onPress={() => setScreen("progress")} />
+
+      {dash.plan.length > 0 ? (
+        <HoverCard accent={colors.success}>
+          <Text style={{ fontWeight: "800", fontSize: 15 }}>This week 🎯 — fix weakest</Text>
+          {dash.plan.map((p) => <Text key={p.topic_id} style={{ ...type.small }}>• {p.name} ×{p.drills} drills</Text>)}
+        </HoverCard>
+      ) : null}
+
+      <SectionTitle>Help & community</SectionTitle>
+      <MenuRow icon="✨" title="Ask AI tutor" subtitle="Knows your weak topics" color={colors.tutor} onPress={() => openTutor(null)} />
+      <MenuRow icon="💬" title="Community Q&A" subtitle="Ask peers · leaderboard inside" color={colors.warning} onPress={loadPosts} />
+      {weakNote ? <MenuRow icon="📘" title={`Notes: ${weakNote.name}`} subtitle="Your weakest topic" color={colors.secondary} onPress={() => openNotes(weakNote)} /> : null}
+
       {dash.badges.length > 0 ? (
-        <View style={{ flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" }}>
+        <View style={{ flexDirection: "row", gap: spacing.sm, flexWrap: "wrap", marginVertical: spacing.xs }}>
           {dash.badges.map((b) => <Badge key={b} label={b} />)}
         </View>
       ) : null}
-      {dash.prefs.reminder_time ? <Text style={{ color: colors.muted }}>🔔 Reminder at {dash.prefs.reminder_time} ✓</Text> : null}
-      {weakNote ? <Button title={`📝 Notes: ${weakNote.name} (weakest)`} onPress={() => openNotes(weakNote)} /> : null}
-      <Button title="Ask AI tutor" onPress={() => openTutor(null)} />
-      <Button title="Community Q&A" onPress={loadPosts} />
-      <Button title="View design system" onPress={() => setScreen("design")} />
-      <Button title="⚙ Settings (date, target, reminder)" onPress={() => setScreen("settings")} />
-      {msg ? <Text>{msg}</Text> : null}
-      <Text style={{ fontWeight: "700" }}>Practice by topic:</Text>
-      <FlatList
-        data={topics}
-        keyExtractor={(t) => String(t.id)}
-        renderItem={({ item }) => (
-          <TouchableOpacity onPress={() => startPractice(item)}>
-            <Text>- {item.subject}: {item.name} →</Text>
-          </TouchableOpacity>
-        )}
-      />
-    </View>
-    </ScrollView>
+      {dash.prefs.reminder_time ? <Text style={{ ...type.small, color: colors.muted }}>🔔 Reminder at {dash.prefs.reminder_time} ✓</Text> : null}
+
+      <SectionTitle>Practice by topic</SectionTitle>
+      {topics.map((t) => (
+        <MenuRow key={t.id} icon="📖" title={t.name} subtitle={t.subject} color={colors.primary} onPress={() => startPractice(t)} />
+      ))}
+
+      <SectionTitle>Offline</SectionTitle>
+      <MenuRow icon="⬇" title="Download pack" subtitle="Questions + notes for offline" color={colors.text} onPress={downloadPack} />
+      {pending > 0 ? <MenuRow icon="⬆" title={`Sync ${pending} result${pending > 1 ? "s" : ""}`} subtitle="Waiting on device" color={colors.text} onPress={syncNow} /> : null}
+      <MenuRow icon="⚙" title="Settings" subtitle="Exam date · target · reminder" color={colors.muted} onPress={() => setScreen("settings")} />
+      <MenuRow icon="🎨" title="Design system" subtitle="Tokens + components" color={colors.muted} onPress={() => setScreen("design")} />
+    </Screen>
   );
 }
 
@@ -892,19 +880,14 @@ function SettingsScreen({ api, userId, exam, dash, onSaved }) {
     onSaved();
   };
   return (
-    <ScrollView style={{ backgroundColor: colors.bg }}>
-      <View style={{ padding: spacing.lg, gap: spacing.sm }}>
-        <Text style={type.h1}>⚙ Settings</Text>
-        <Text>Exam date (YYYY-MM-DD, optional)</Text>
-        <TextInput value={examDate} onChangeText={setExamDate} placeholder="2026-11-01" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8 }} />
-        <Text>Target score / grade (optional)</Text>
-        <TextInput value={target} onChangeText={setTarget} placeholder="A1 / 1300 / 320" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8 }} />
-        <Text>Daily reminder time (HH:MM, optional)</Text>
-        <TextInput value={rem} onChangeText={setRem} placeholder="18:00" style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 8 }} />
-        <Btn title="Save" onPress={save} />
-        <Btn title="← Back home" variant="ghost" onPress={onSaved} />
-        {msg ? <Text>{msg}</Text> : null}
-      </View>
-    </ScrollView>
+    <Screen>
+      <PageHeader title="⚙ Settings" subtitle="Exam date · target · reminder" color={colors.text} />
+      <Field label="Exam date (YYYY-MM-DD, optional)" value={examDate} onChangeText={setExamDate} placeholder="2026-11-01" />
+      <Field label="Target score / grade (optional)" value={target} onChangeText={setTarget} placeholder="A1 / 1300 / 320" />
+      <Field label="Daily reminder time (HH:MM, optional)" value={rem} onChangeText={setRem} placeholder="18:00" />
+      <Btn title="Save" onPress={save} />
+      <Btn title="← Back home" variant="ghost" onPress={onSaved} />
+      {msg ? <Card accent={colors.success}><Text>{msg}</Text></Card> : null}
+    </Screen>
   );
 }
