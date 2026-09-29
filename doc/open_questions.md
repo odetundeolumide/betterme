@@ -14,7 +14,7 @@ Recorded instead of guessed. Nothing here is decided until answered.
 
 ## Must answer before Part B code
 5. **Teacher/school roles — DEFERRED.** No review UI or roles now; flags + snapshots are stored for later review. Revisit when a role source exists.
-6. **Snapshot storage — ANSWERED: Cloudflare R2** (encrypted), metadata + flags in Postgres. R2 credentials still needed when Part B starts.
+6. **Snapshot storage — R2 DECIDED, credentials DEFERRED.** Base64-in-Postgres interim stays until R2 keys arrive.
 7. **Retention — CONFIRMED: 30 days after results final** (auto-delete). Who/what marks results "final" still open — proposed: exam session closed + graded.
 8. **Consent collection — ANSWERED: in-app checkboxes.** Student ticks school consent + parent/guardian consent (with name/relationship) before the first proctored exam; both stored with notice version + timestamp.
 9. **Detection thresholds — ANSWERED: one global default** (no-face 10s, yaw 35°, pitch 25°, sustain 5s). Stored server-side so per-exam overrides can be added later without app changes.
