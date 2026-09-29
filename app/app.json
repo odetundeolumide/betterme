@@ -6,6 +6,9 @@
     "orientation": "portrait",
     "primaryColor": "#1a73e8",
     "newArchEnabled": true,
+    "android": {
+      "package": "com.odetundeolumide.betterme"
+    },
     "plugins": [
       "expo-asset"
     ]
