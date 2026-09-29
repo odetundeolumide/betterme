@@ -75,6 +75,13 @@ BetterMe gives every student a clear starting point, a guided path forward, and 
 - Results sync when you're back online
 - Built to use very little data
 
+### WAEC syllabus tracker
+- Pick a department (Science, Humanities, Business) and see every subject
+- Core subjects (English, General Mathematics, Civic Education) always shown
+- Per-subject topic checklists with progress bars, exam format, textbooks
+- Every subject shows its source with a "confirm against your school's syllabus" notice
+- Study plans queue reminders; admins can correct topics and verify sources
+
 ## How It Works
 
 1. **Sign up** and choose your exam
@@ -100,6 +107,9 @@ Qubator/
 ├── docker-compose.yml      # local Postgres (needs Docker; else install Postgres)
 ├── app/                    # Expo app (Auth → ExamPicker → Home)
 ├── server/                 # local API + Better Auth + Postgres schema/seed
+│   ├── db/curriculum_schema.sql  # syllabus tables (departments→reminders)
+│   ├── scripts/import-curriculum.js  # markdown → DB importer
+│   └── tests/curriculum.test.js  # node:test suite (npm test)
 ├── content/                # bulk question CSV imports
 └── doc/
     ├── betterme-project-brief.md
@@ -113,6 +123,13 @@ Qubator/
 * `doc/betterme-project-brief.md` — overview, problem, solution, scope
 * `doc/exam-prep-companion-app-features.md` — full feature list (accounts, diagnostic, practice, notes, mocks, plan, home, tutor, community, offline)
 * `doc/PRD.md` — requirements (A1–O3), journey, principles, metrics, risks
+* `doc/WAEC_Subjects_and_Curriculum.md` — source WAEC syllabus document
+* `doc/curriculum_import_notes.md` — parser decisions, ambiguities, trust model
+
+> **Note on Economics eligibility:** press reports say 2026 guidelines limit
+> Economics to Business students, but WAEC has not confirmed this. Department
+> eligibility is a configurable `eligible` flag on each department–subject
+> link (default: allow), not hard-coded — see `curriculum_dept_subjects`.
 
 ## Getting Started (Phase 0 scaffold)
 
@@ -129,6 +146,9 @@ cp .env.example .env
 npm install
 psql "$DATABASE_URL" -f db/schema.sql
 psql "$DATABASE_URL" -f db/seed.sql
+psql "$DATABASE_URL" -f db/curriculum_schema.sql
+node scripts/import-curriculum.js   # load the WAEC syllabus (idempotent)
+npm test                            # curriculum test suite
 npm run dev
 
 # 3. App (Expo)

@@ -471,8 +471,8 @@ export function splitDocument(md) {
     const h1 = t.match(/^#\s+(.+)$/);
     const h2 = t.match(/^##\s+(.+)$/);
     if (h1 && !h2) {
-      if (/core subjects/i.test(h1[1])) currentDept = { header: h1[1], rows: [], core: true };
-      else if (/department/i.test(h1[1])) currentDept = { header: h1[1], rows: [], core: false };
+      if (/^core\b/i.test(h1[1])) currentDept = { header: h1[1], rows: [], core: true };
+      else if (/^department\b/i.test(h1[1])) currentDept = { header: h1[1], rows: [], core: false };
       else currentDept = null;
       if (currentDept) deptTables.push(currentDept);
       current = null;
