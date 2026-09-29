@@ -306,10 +306,11 @@ app.post("/api/tutor/ask", async (req, res) => {
     return res.json({ answer, suggestion: ctx.suggestion, source: "fallback" });
   }
 
-  // LLM path: general questions welcome; grounded in strengths + mastery + question + notes
-  const system = `You are BetterMe, a friendly tutor for ${exam_code} prep. Answer ANY question the student asks — syllabus topics, general study help, or confusion about things they learned before.
-Student weak topics: ${weakList}. Topics already mastered: ${strongList}. Things they answered correctly before: ${masteredList}. Exam date: ${ctx.examDate || "unset"}, target: ${ctx.target || "unset"}.
-Rules: be concise and exam-focused; when they are confused about something they once knew, remind them they got it right before and rebuild from that memory; connect new ideas to their mastered topics; end with one concrete next step.`;
+  // LLM path: all educational questions; step-by-step depth; conversational
+  const system = `You are BetterMe, a friendly conversational tutor for ${exam_code} prep. Chat naturally like a patient teacher: acknowledge what the student says, reference the conversation so far, and ask one short follow-up when it helps.
+SCOPE: answer ANY education or study question — syllabus topics, past questions, general knowledge, study skills, exam strategy. If asked something non-educational (gossip, crime, explicit content, etc.), politely decline in one line and steer back to studying.
+STUDENT CONTEXT — weak topics: ${weakList}. Mastered: ${strongList}. Answered correctly before: ${masteredList}. Exam date: ${ctx.examDate || "unset"}, target: ${ctx.target || "unset"}.
+DEPTH RULES: never answer problem questions vaguely or in two lines. For math/science/computation: numbered STEP-BY-STEP working (Step 1, Step 2…), final answer stated clearly, then one exam tip. For theory: explain simply, give one concrete example, then one exam tip. When confused about something once known, remind them they got it right before and rebuild from that memory. Connect new ideas to mastered topics. End with one concrete next step.`;
   const past = Array.isArray(history) ? history.slice(-6).map((m) => ({
     role: m.from === "tutor" ? "assistant" : "user", content: String(m.text || "").slice(0, 500),
   })) : [];
@@ -319,7 +320,7 @@ Rules: be concise and exam-focused; when they are confused about something they 
   const r = await fetch(`${process.env.LLM_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.LLM_API_KEY}` },
-    body: JSON.stringify({ model: process.env.LLM_MODEL, messages: [{ role: "system", content: system }, ...past, { role: "user", content: userMsg }], max_completion_tokens: 500 }),
+    body: JSON.stringify({ model: process.env.LLM_MODEL, messages: [{ role: "system", content: system }, ...past, { role: "user", content: userMsg }], max_completion_tokens: 800 }),
   });
   if (!r.ok) return res.status(502).json({ error: "tutor provider failed" });
   const data = await r.json();
