@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { View, Text } from "react-native";
-import { colors, spacing, type } from "./theme";
+import React, { useState, useEffect, useRef } from "react";
+import { View, Text, TextInput, TouchableOpacity } from "react-native";
+import { colors, spacing, type, radius, shadow } from "./theme";
 import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow, Screen, PageHeader, HoverCard, MenuRow, EmptyState, Field, Fab, TutorBuddy } from "./components";
 import { savePack, loadPack, queueAttempt, pendingAttempts, dropQueued, pendingCount, uuid } from "./offline";
 
@@ -280,6 +280,7 @@ function AppInner() {
   const [tutorCtx, setTutorCtx] = useState(null);
   const [tmsg, setTmsg] = useState("");
   const [tsending, setTsending] = useState(false);
+  const chatRef = useRef(null);
 
   const openTutor = async (question) => {
     setTutorQ(question || null);
@@ -697,27 +698,73 @@ function AppInner() {
   if (screen === "tutor") {
     const sug = tutorCtx?.suggestion;
     const sugTopic = sug ? topics.find((t) => t.id === sug.topic_id) : null;
+    const chips = ["Explain simply", "Give an example", "Summarize this"];
     return (
-      <Screen>
-        <PageHeader title="✨ AI tutor" subtitle={tutorCtx ? `Knows your weak spots${tutorCtx.examDate ? ` · exam ${tutorCtx.examDate}` : ""}` : "Ask anything"} color={colors.tutor} />
-        {tutorQ ? <Card accent={colors.tutor}><Text style={{ fontWeight: "700" }}>About: {tutorQ.stem}</Text></Card> : null}
-        {chat.length === 0 ? <EmptyState icon="💬" text="Ask e.g. “explain this again in a simpler way”" /> : null}
-        {chat.map((m, i) => (
-          <ChatBubble key={i} from={m.from} text={m.text} />
-        ))}
-        {tsending ? <Text style={{ color: colors.muted }}>Tutor is thinking…</Text> : null}
-        {sug && sugTopic ? (
-          <HoverCard accent={colors.tutor}>
-            <Text style={{ fontWeight: "800" }}>Practice next → {sugTopic.name}</Text>
-            <Btn title="Start drill" onPress={() => startPractice(sugTopic)} />
-          </HoverCard>
-        ) : null}
-        <Field label="Your question" value={tmsg} onChangeText={setTmsg} placeholder="Ask, e.g. explain this again simply" />
-        <Btn title="Send" onPress={() => askTutor()} />
-        <Btn title="Explain simply" variant="ghost" onPress={() => askTutor("explain this again in a simpler way")} />
-        <Btn title="🆕 New chat" variant="ghost" onPress={() => { setChat([]); setTutorQ(null); setTmsg(""); }} />
-        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
-      </Screen>
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <View style={{ backgroundColor: colors.tutor, paddingTop: spacing.lg, paddingBottom: spacing.md, paddingHorizontal: spacing.lg }}>
+          <View style={{ ...page }}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ ...type.h2, color: "#fff" }}>✨ AI tutor</Text>
+                <Text style={{ ...type.tiny, color: "#fff", opacity: 0.85 }}>
+                  {tutorCtx ? `Knows: ${tutorCtx.weakTopics?.map((w) => w.name).join(", ") || "nothing yet — take the diagnostic"}` : "Loading what I know about you…"}
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", gap: spacing.md }}>
+                <TouchableOpacity onPress={() => { setChat([]); setTutorQ(null); setTmsg(""); }}>
+                  <Text style={{ color: "#fff", fontWeight: "800", fontSize: 18 }}>🆕</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setScreen("home")}>
+                  <Text style={{ color: "#fff", fontWeight: "800", fontSize: 18 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+        <ScrollView
+          ref={chatRef}
+          onContentSizeChange={() => chatRef.current?.scrollToEnd({ animated: true })}
+          contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.md }}
+        >
+          <View style={{ ...page, gap: spacing.xs }}>
+            {tutorQ ? <Card accent={colors.tutor}><Text style={{ fontWeight: "700" }}>About: {tutorQ.stem}</Text></Card> : null}
+            {chat.length === 0 ? <EmptyState icon="💬" text="Ask anything study-related — I remember your weak spots and what you've mastered." /> : null}
+            {chat.map((m, i) => (
+              <ChatBubble key={i} from={m.from} text={m.text} />
+            ))}
+            {tsending ? <ChatBubble from="tutor" text="…" /> : null}
+            {sug && sugTopic ? (
+              <TouchableOpacity onPress={() => startPractice(sugTopic)}>
+                <Card accent={colors.tutor}>
+                  <Text style={{ fontWeight: "800" }}>▶ Practice next: {sugTopic.name} ›</Text>
+                </Card>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </ScrollView>
+        <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.xs }}>
+          <View style={{ ...page, flexDirection: "row", gap: spacing.sm }}>
+            {chips.map((c) => (
+              <TouchableOpacity key={c} onPress={() => askTutor(c === "Explain simply" ? "explain this again in a simpler way" : c)} style={{ borderWidth: 1.5, borderColor: colors.tutor, borderRadius: radius.lg, paddingVertical: spacing.xs, paddingHorizontal: spacing.md, backgroundColor: "#fff" }}>
+                <Text style={{ color: colors.tutor, fontWeight: "700", fontSize: 13 }}>{c}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+        <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, paddingTop: spacing.xs, backgroundColor: colors.bg, borderTopWidth: 1, borderTopColor: colors.border }}>
+          <View style={{ ...page, flexDirection: "row", gap: spacing.sm, alignItems: "center" }}>
+            <TextInput
+              value={tmsg} onChangeText={setTmsg} placeholder="Message your tutor…"
+              placeholderTextColor={colors.muted} multiline
+              onSubmitEditing={() => askTutor()}
+              style={{ flex: 1, backgroundColor: "#fff", borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.lg, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, fontSize: 15, color: colors.text, maxHeight: 100 }}
+            />
+            <TouchableOpacity onPress={() => askTutor()} style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: tsending ? colors.muted : colors.tutor, alignItems: "center", justifyContent: "center", ...shadow.card }}>
+              <Text style={{ color: "#fff", fontSize: 20, fontWeight: "800" }}>↑</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
     );
   }
 
