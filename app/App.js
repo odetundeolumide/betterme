@@ -368,6 +368,29 @@ function AppInner() {
     }
   };
 
+  // Tester feedback (Option A round): bug / idea / praise + current screen.
+  const [fbType, setFbType] = useState("bug");
+  const [fbText, setFbText] = useState("");
+  const [fbMsg, setFbMsg] = useState("");
+
+  const submitFeedback = async () => {
+    setFbMsg("");
+    if (!fbText.trim()) {
+      setFbMsg("Write a sentence first — even a short one helps.");
+      return;
+    }
+    const res = await fetch(`${API_URL}/api/feedback`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, type: fbType, message: fbText.trim(), screen, app_version: "0.1.0" }),
+    });
+    if (res.ok) {
+      setFbText("");
+      setFbMsg("Thanks ✓ — your note is with the team.");
+    } else {
+      setFbMsg("Could not send — try again later.");
+    }
+  };
+
   const loadConsent = async () => {
     setCamMsg("");
     const res = await fetch(`${API_URL}/api/consents?user=${encodeURIComponent(userId)}`);
@@ -1447,6 +1470,22 @@ function AppInner() {
     );
   }
 
+  if (screen === "feedback") {
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title="💬 Send feedback" subtitle="Testing round — tell us what breaks" color={colors.warning} />
+        <SectionTitle>What kind of note is this?</SectionTitle>
+        {["bug", "idea", "praise"].map((t) => (
+          <Btn key={t} title={`${fbType === t ? "● " : "○ "}${t === "bug" ? "🐞 Something broke" : t === "idea" ? "💡 Idea / request" : "🎉 Praise"}`} variant={fbType === t ? "primary" : "ghost"} onPress={() => setFbType(t)} />
+        ))}
+        <Field label="Your note" value={fbText} onChangeText={setFbText} placeholder="What happened? What were you doing?" />
+        <Btn title="Send" onPress={submitFeedback} />
+        {fbMsg ? <Card accent={colors.success}><Text>{fbMsg}</Text></Card> : null}
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
+    );
+  }
+
   if (screen === "mocksetup") {
     const mockOptions = () => {
       if (!spec) return [];
@@ -1577,6 +1616,7 @@ function AppInner() {
       <MenuRow icon="🎯" title="Diagnostic test" subtitle="15Q adaptive · find your level" color={colors.tutor} onPress={startDiagnostic} />
       <MenuRow icon="📝" title="Full mock exam" subtitle="Standard counts · real timing" color={colors.danger} onPress={() => setScreen("mocksetup")} />
       <MenuRow icon="📈" title="My progress" subtitle="Per-topic trends + mock history" color={colors.success} onPress={() => setScreen("progress")} />
+      <MenuRow icon="💬" title="Send feedback" subtitle="Testing round — bugs, ideas, praise" color={colors.warning} onPress={() => { setFbMsg(""); setScreen("feedback"); }} />
       <MenuRow icon="🔔" title="My reminders" subtitle="Study plans + push setup" color={colors.warning} onPress={loadMyReminders} />
 
       {dash.plan.length > 0 ? (
