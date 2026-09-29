@@ -759,4 +759,144 @@ app.post("/api/notifications/send-due", async (req, res) => {
   res.json({ sent: out });
 });
 
+// ---- Part B: consent, retention, proctor config, sessions, flags ----
+
+const CONSENT_TYPES = ["school", "parent"];
+
+// Record consent (school + parent required before proctored exams).
+app.post("/api/consents", async (req, res) => {
+  const { student_id, consent_type, notice_version, consenter_name, relationship } = req.body || {};
+  if (!(await currRequireUserSafe(student_id, res))) return;
+  if (!CONSENT_TYPES.includes(consent_type)) return res.status(400).json({ error: "consent_type must be school|parent" });
+  const n = await pool.query("SELECT version FROM consent_notices WHERE version=$1 AND active", [notice_version]);
+  if (!n.rows.length) return res.status(400).json({ error: "unknown or inactive notice version" });
+  if (consent_type === "parent" && !consenter_name) {
+    return res.status(400).json({ error: "parent/guardian name required" });
+  }
+  await pool.query(
+    `INSERT INTO consents (student_id, consent_type, notice_version, consenter_name, relationship)
+     VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+    [student_id, consent_type, notice_version, consenter_name || "", relationship || ""]
+  );
+  res.json({ ok: true });
+});
+
+app.get("/api/consents", async (req, res) => {
+  const user = req.query.user;
+  if (!user) return res.status(401).json({ error: "user required" });
+  const notice = await pool.query("SELECT version, title, body FROM consent_notices WHERE active ORDER BY version DESC LIMIT 1");
+  const cons = await pool.query("SELECT consent_type, notice_version, consenter_name, relationship, created_at FROM consents WHERE student_id=$1", [user]);
+  const have = new Set(cons.rows.map((r) => `${r.consent_type}@${r.notice_version}`));
+  const v = notice.rows[0]?.version;
+  res.json({
+    notice: notice.rows[0] || null,
+    consents: cons.rows,
+    complete: !!v && have.has(`school@${v}`) && have.has(`parent@${v}`),
+  });
+});
+
+// Retention setting (default 30d) + purge runner (cron calls this).
+app.get("/api/retention", async (_req, res) => {
+  const { rows } = await pool.query("SELECT snapshot_retention_days FROM retention_settings WHERE id=1");
+  res.json(rows[0]);
+});
+
+app.post("/api/retention/purge", async (_req, res) => {
+  // Deletes flag rows whose snapshot is older than the retention window.
+  // (R2 object deletion happens here when snapshots move to R2 — see Q6.)
+  const { rows } = await pool.query(
+    `WITH old AS (
+       DELETE FROM proctor_flags WHERE flagged_at < NOW() - (SELECT make_interval(days => snapshot_retention_days) FROM retention_settings WHERE id=1)
+       RETURNING id
+     ) SELECT COUNT(*)::int AS deleted FROM old`
+  );
+  await pool.query("INSERT INTO retention_purges (deleted_snapshots) VALUES ($1)", [rows[0].deleted]);
+  res.json({ deleted: rows[0].deleted });
+});
+
+// Detection thresholds (global default; clients poll per exam session).
+app.get("/api/proctor-config", async (_req, res) => {
+  const { rows } = await pool.query("SELECT no_face_seconds, yaw_degrees, pitch_degrees, sustain_seconds FROM proctor_config WHERE id=1");
+  res.json(rows[0]);
+});
+
+// Exam sessions: open at start, close at end. Camera status tracked.
+app.post("/api/exam-sessions", async (req, res) => {
+  const { student_id, exam_code } = req.body || {};
+  if (!(await currRequireUserSafe(student_id, res))) return;
+  // Block proctored start without both consents on the active notice.
+  const n = await pool.query("SELECT version FROM consent_notices WHERE active ORDER BY version DESC LIMIT 1");
+  if (n.rows.length) {
+    const c = await pool.query("SELECT COUNT(DISTINCT consent_type)::int AS k FROM consents WHERE student_id=$1 AND notice_version=$2", [student_id, n.rows[0].version]);
+    if (c.rows[0].k < 2) return res.status(403).json({ error: "school + parent consent required", need_consent: true });
+  }
+  const { rows } = await pool.query(
+    "INSERT INTO exam_sessions (student_id, exam_code) VALUES ($1,$2) RETURNING id, started_at",
+    [student_id, exam_code || "WAEC"]
+  );
+  res.json({ ok: true, ...rows[0] });
+});
+
+app.patch("/api/exam-sessions/:id", async (req, res) => {
+  const { student_id, camera_status, needs_review, results_final } = req.body || {};
+  if (!(await currRequireUserSafe(student_id, res))) return;
+  const own = await pool.query("SELECT id FROM exam_sessions WHERE id=$1 AND student_id=$2", [req.params.id, student_id]);
+  if (!own.rows.length) return res.status(403).json({ error: "not your session" });
+  const sets = ["ended_at=NOW()"];
+  const vals = [req.params.id];
+  if (camera_status) {
+    if (!["unknown", "active", "denied", "failed", "off"].includes(camera_status)) return res.status(400).json({ error: "bad camera_status" });
+    vals.push(camera_status);
+    sets.push(`camera_status=$${vals.length}`);
+  }
+  if (needs_review !== undefined) {
+    vals.push(!!needs_review);
+    sets.push(`needs_review=$${vals.length}`);
+  }
+  if (results_final !== undefined) {
+    vals.push(!!results_final);
+    sets.push(`results_final=$${vals.length}`);
+  }
+  await pool.query(`UPDATE exam_sessions SET ${sets.join(", ")} WHERE id=$1`, vals);
+  res.json({ ok: true });
+});
+
+// Flags are review-only data: stored, never auto-fail anything.
+const FLAG_TYPES = ["no_face", "multiple_faces", "head_turned", "tab_switch", "fullscreen_exit", "backgrounded", "camera_failed"];
+
+app.post("/api/proctor-flags", async (req, res) => {
+  const { student_id, session_id, flag_type, snapshot_url, detail } = req.body || {};
+  if (!(await currRequireUserSafe(student_id, res))) return;
+  if (!FLAG_TYPES.includes(flag_type)) return res.status(400).json({ error: "unknown flag_type" });
+  const own = await pool.query("SELECT id FROM exam_sessions WHERE id=$1 AND student_id=$2", [session_id, student_id]);
+  if (!own.rows.length) return res.status(403).json({ error: "not your session" });
+  const { rows } = await pool.query(
+    "INSERT INTO proctor_flags (session_id, flag_type, snapshot_url, detail) VALUES ($1,$2,$3,$4) RETURNING id, flagged_at",
+    [session_id, flag_type, snapshot_url || "", JSON.stringify(detail || {})]
+  );
+  res.json({ ok: true, ...rows[0] });
+});
+
+app.get("/api/exam-sessions/:id/flags", async (req, res) => {
+  const user = req.query.user;
+  if (!user) return res.status(401).json({ error: "user required" });
+  const own = await pool.query("SELECT id FROM exam_sessions WHERE id=$1 AND student_id=$2", [req.params.id, user]);
+  if (!own.rows.length) return res.status(403).json({ error: "not your session" });
+  const { rows } = await pool.query("SELECT id, flag_type, flagged_at, detail FROM proctor_flags WHERE session_id=$1 ORDER BY flagged_at", [req.params.id]);
+  res.json(rows);
+});
+
+async function currRequireUserSafe(userId, res) {
+  if (!userId) {
+    res.status(401).json({ error: "user_id required" });
+    return false;
+  }
+  const { rows } = await pool.query('SELECT 1 FROM "user" WHERE id=$1', [userId]);
+  if (!rows.length) {
+    res.status(404).json({ error: "unknown student" });
+    return false;
+  }
+  return true;
+}
+
 app.listen(PORT, () => console.log(`betterme-server on http://localhost:${PORT}`));
