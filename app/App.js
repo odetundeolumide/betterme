@@ -54,12 +54,27 @@ function AppInner() {
 
   const callAuth = async (mode) => {
     setMsg("");
-    const res = await fetch(`${API_URL}/api/auth/${mode}/email`, {
+    const body = JSON.stringify({ email, password, name: email });
+    const attempt = (m) => fetch(`${API_URL}/api/auth/${m}/email`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, name: email }),
+      body,
     });
-    if (!res.ok) return setMsg(`Auth failed (${res.status})`);
+    let res = await attempt(mode);
+    if (!res.ok && mode === "sign-up") {
+      // Account already exists? Just sign them in instead.
+      let code = "";
+      try { code = (await res.json())?.code || ""; } catch { /* ignore */ }
+      if (res.status === 422 && code.includes("EXISTS")) {
+        res = await attempt("sign-in");
+        if (!res.ok) return setMsg("Account exists but the password didn't match — check it and tap Sign in.");
+      } else if (res.status === 422) {
+        return setMsg("Check your email format and use a 8+ character password.");
+      } else {
+        return setMsg(`Sign-up failed (${res.status}) — is the server running?`);
+      }
+    }
+    if (!res.ok) return setMsg(`Auth failed (${res.status}) — check email/password and tap Sign in.`);
     setUserId(email);
     setScreen("exams");
   };
