@@ -9,7 +9,7 @@
     "db:seed": "psql %DATABASE_URL% -f db/seed.sql",
     "db:curriculum": "psql %DATABASE_URL% -f db/curriculum_schema.sql",
     "import:curriculum": "node scripts/import-curriculum.js",
-    "test": "node --test tests/curriculum.test.js"
+    "test": "node --test tests/curriculum.test.js tests/permissions.test.js"
   },
   "dependencies": {
     "better-auth": "^1.3.0",

@@ -701,4 +701,23 @@ app.put("/api/curriculum/admin/subjects/:slug/source", async (req, res) => {
   res.json(out[0]);
 });
 
+// ---- Part 0: permission state logging (no personal data) ----
+// feature: notifications | camera | exact_alarm
+// to_state: prompt_shown | granted | denied_once | permanently_denied |
+//   revoked | settings_opened
+const PERM_FEATURES = ["notifications", "camera", "exact_alarm"];
+const PERM_STATES = ["prompt_shown", "granted", "denied_once", "permanently_denied", "revoked", "settings_opened"];
+
+app.post("/api/permission-events", async (req, res) => {
+  const { student_id, feature, from_state, to_state, platform } = req.body || {};
+  if (!PERM_FEATURES.includes(feature)) return res.status(400).json({ error: "unknown feature" });
+  if (!PERM_STATES.includes(to_state)) return res.status(400).json({ error: "unknown state" });
+  if (from_state && !PERM_STATES.includes(from_state)) return res.status(400).json({ error: "unknown from_state" });
+  await pool.query(
+    "INSERT INTO permission_events (student_id, feature, from_state, to_state, platform) VALUES ($1,$2,$3,$4,$5)",
+    [student_id || "", feature, from_state || "", to_state, platform || ""]
+  );
+  res.json({ ok: true });
+});
+
 app.listen(PORT, () => console.log(`betterme-server on http://localhost:${PORT}`));
