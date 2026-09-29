@@ -14,7 +14,7 @@ Recorded instead of guessed. Nothing here is decided until answered.
 
 ## Must answer before Part B code
 5. **Teacher/school roles — DEFERRED.** No review UI or roles now; flags + snapshots are stored for later review. Revisit when a role source exists.
-6. **Snapshot storage**: Cloudflare R2 env vars exist for media — confirm snapshots go there (with server-side encryption), not Postgres.
+6. **Snapshot storage — ANSWERED: Cloudflare R2** (encrypted), metadata + flags in Postgres. R2 credentials still needed when Part B starts.
 7. **Retention**: default 30 days after results are final — confirmed? Who marks results "final"?
 8. **Consent collection**: how do schools/parents actually sign — in-app checkbox by the student claiming parent approval, or a separate parent flow (SMS link?)?
 9. **Detection thresholds**: starting values for N seconds (no-face), yaw/pitch degrees, sustain time — per exam, or one global default (propose: N=10s, yaw=35°, pitch=25°, sustain=5s)?
