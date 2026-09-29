@@ -943,4 +943,17 @@ app.post("/api/deletion-requests", async (req, res) => {
   res.json({ ok: true });
 });
 
+// In-app feedback for tester rounds (Option A): bug / idea / praise.
+app.post("/api/feedback", async (req, res) => {
+  const { user_id, type, message, screen, app_version } = req.body || {};
+  if (!(await currRequireUserSafe(user_id, res))) return;
+  if (!["bug", "idea", "praise"].includes(type)) return res.status(400).json({ error: "type must be bug|idea|praise" });
+  if (!message || message.length > 2000) return res.status(400).json({ error: "message required, max 2000 chars" });
+  const { rows } = await pool.query(
+    "INSERT INTO feedback (user_id, type, message, screen, app_version) VALUES ($1,$2,$3,$4,$5) RETURNING id, created_at",
+    [user_id, type, message, screen || "", app_version || ""]
+  );
+  res.json({ ok: true, ...rows[0] });
+});
+
 app.listen(PORT, () => console.log(`betterme-server on http://localhost:${PORT}`));
