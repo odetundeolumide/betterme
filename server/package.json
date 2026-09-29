@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "node src/index.js",
     "db:init": "psql %DATABASE_URL% -f db/schema.sql",
-    "db:seed": "psql %DATABASE_URL% -f db/seed.sql"
+    "db:seed": "psql %DATABASE_URL% -f db/seed.sql",
+    "db:curriculum": "psql %DATABASE_URL% -f db/curriculum_schema.sql",
+    "import:curriculum": "node scripts/import-curriculum.js",
+    "test": "node --test tests/"
   },
   "dependencies": {
     "better-auth": "^1.3.0",
