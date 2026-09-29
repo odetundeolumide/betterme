@@ -6,4 +6,5 @@ dist/
 # Firebase secrets (wired locally, never committed)
 google-services.json
 GoogleService-Info.plist
+firebase-service-account.json
 *-firebase-adminsdk-*.json
