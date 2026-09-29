@@ -425,4 +425,280 @@ app.get("/api/leaderboard", async (req, res) => {
   res.json({ board, me });
 });
 
+// ---- Curriculum: WAEC syllabus tree (doc/WAEC_Subjects_and_Curriculum.md) ----
+
+const CURR_STATUS = ["not_started", "studying", "done"];
+
+// Repo auth convention: the client passes user_id (Better Auth id); writes
+// additionally verify the user exists. Admin endpoints need admin_users.
+async function currRequireUser(userId, res) {
+  if (!userId) {
+    res.status(401).json({ error: "user_id required" });
+    return false;
+  }
+  const { rows } = await pool.query('SELECT 1 FROM "user" WHERE id=$1', [userId]);
+  if (!rows.length) {
+    res.status(404).json({ error: "unknown student" });
+    return false;
+  }
+  return true;
+}
+
+async function currRequireAdmin(req, res) {
+  const uid = req.body?.user_id || req.query.user;
+  if (!uid) {
+    res.status(401).json({ error: "user_id required" });
+    return null;
+  }
+  const { rows } = await pool.query("SELECT 1 FROM admin_users WHERE user_id=$1", [uid]);
+  if (!rows.length) {
+    res.status(403).json({ error: "admin only" });
+    return null;
+  }
+  return uid;
+}
+
+async function currTopicTree(subjectSlug) {
+  const { rows } = await pool.query(
+    "SELECT id, parent_topic_id, title, topic_order, notes FROM curriculum_topics WHERE subject_slug=$1 ORDER BY topic_order",
+    [subjectSlug]
+  );
+  const byId = new Map(rows.map((r) => [r.id, { ...r, children: [] }]));
+  const roots = [];
+  for (const r of byId.values()) {
+    if (r.parent_topic_id && byId.has(r.parent_topic_id)) byId.get(r.parent_topic_id).children.push(r);
+    else roots.push(r);
+  }
+  return roots;
+}
+
+// List departments with subject counts.
+app.get("/api/curriculum/departments", async (_req, res) => {
+  const { rows } = await pool.query(
+    `SELECT d.slug, d.name,
+            (SELECT COUNT(*)::int FROM curriculum_dept_subjects l WHERE l.department_slug=d.slug) AS subject_count
+     FROM curriculum_departments d ORDER BY d.sort`
+  );
+  res.json(rows);
+});
+
+// Subjects for a department, core first. ?user= adds done/total progress.
+app.get("/api/curriculum/departments/:slug/subjects", async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT s.slug, s.name, s.is_core, l.eligible, l.eligibility_note,
+            (SELECT COUNT(*)::int FROM curriculum_topics t WHERE t.subject_slug=s.slug) AS topic_count
+     FROM curriculum_dept_subjects l JOIN curriculum_subjects s ON s.slug=l.subject_slug
+     WHERE l.department_slug=$1 ORDER BY s.is_core DESC, s.name`,
+    [req.params.slug]
+  );
+  const user = req.query.user;
+  if (user) {
+    const done = await pool.query(
+      `SELECT t.subject_slug, COUNT(*)::int AS c FROM curriculum_progress p
+       JOIN curriculum_topics t ON t.id=p.topic_id
+       WHERE p.student_id=$1 AND p.status='done' GROUP BY t.subject_slug`,
+      [user]
+    );
+    const bySubj = new Map(done.rows.map((r) => [r.subject_slug, r.c]));
+    for (const r of rows) {
+      r.done_count = bySubj.get(r.slug) || 0;
+    }
+  }
+  res.json(rows);
+});
+
+// One subject: tree + papers + textbooks + source (+ own progress with ?user=).
+app.get("/api/curriculum/subjects/:slug", async (req, res) => {
+  const { rows } = await pool.query(
+    "SELECT slug, name, is_core, aims, notes FROM curriculum_subjects WHERE slug=$1",
+    [req.params.slug]
+  );
+  if (!rows.length) return res.status(404).json({ error: "unknown subject" });
+  const [topics, papers, books, src] = await Promise.all([
+    currTopicTree(req.params.slug),
+    pool.query("SELECT label, format FROM curriculum_exam_papers WHERE subject_slug=$1 ORDER BY id", [req.params.slug]),
+    pool.query("SELECT citation FROM curriculum_textbooks WHERE subject_slug=$1 ORDER BY sort, id", [req.params.slug]),
+    pool.query("SELECT source_url, source_note, syllabus_edition, reliability, last_verified_at FROM curriculum_sources WHERE subject_slug=$1", [req.params.slug]),
+  ]);
+  const out = {
+    ...rows[0],
+    topics,
+    exam_papers: papers.rows,
+    textbooks: books.rows.map((r) => r.citation),
+    source: src.rows[0] || null,
+  };
+  if (req.query.user) {
+    const prog = await pool.query("SELECT topic_id, status FROM curriculum_progress WHERE student_id=$1 AND topic_id IN (SELECT id FROM curriculum_topics WHERE subject_slug=$2)", [req.query.user, req.params.slug]);
+    out.progress = Object.fromEntries(prog.rows.map((r) => [r.topic_id, r.status]));
+  }
+  res.json(out);
+});
+
+// Progress summary for a subject. Only the student's own rows (scoped by user).
+app.get("/api/curriculum/subjects/:slug/progress", async (req, res) => {
+  const user = req.query.user;
+  if (!user) return res.status(401).json({ error: "user required" });
+  const total = await pool.query("SELECT COUNT(*)::int AS c FROM curriculum_topics WHERE subject_slug=$1", [req.params.slug]);
+  const { rows } = await pool.query(
+    `SELECT p.topic_id, p.status FROM curriculum_progress p
+     JOIN curriculum_topics t ON t.id=p.topic_id
+     WHERE p.student_id=$1 AND t.subject_slug=$2`,
+    [user, req.params.slug]
+  );
+  const byStatus = { not_started: 0, studying: 0, done: 0 };
+  for (const r of rows) byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+  res.json({ total: total.rows[0].c, by_status: byStatus, topics: rows });
+});
+
+// Update one topic's status (own progress only).
+app.put("/api/curriculum/progress", async (req, res) => {
+  const { user_id, topic_id, status } = req.body || {};
+  if (!CURR_STATUS.includes(status)) return res.status(400).json({ error: "status must be not_started|studying|done" });
+  if (!(await currRequireUser(user_id, res))) return;
+  const t = await pool.query("SELECT id FROM curriculum_topics WHERE id=$1", [topic_id]);
+  if (!t.rows.length) return res.status(404).json({ error: "unknown topic" });
+  const { rows } = await pool.query(
+    `INSERT INTO curriculum_progress (student_id, topic_id, status, updated_at)
+     VALUES ($1,$2,$3,NOW())
+     ON CONFLICT (student_id, topic_id) DO UPDATE SET status=EXCLUDED.status, updated_at=NOW()
+     RETURNING student_id, topic_id, status, updated_at`,
+    [user_id, topic_id, status]
+  );
+  res.json(rows[0]);
+});
+
+// ---- STEP 5: study plans (data model + API; delivery is separate) ----
+
+function currNextSlot(timeSlot) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(timeSlot || "");
+  if (!m) return null;
+  const d = new Date();
+  d.setHours(+m[1], +m[2], 0, 0);
+  if (d <= new Date()) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+// Create a plan: subject + topics + time slot -> one pending reminder per topic.
+app.post("/api/curriculum/plans", async (req, res) => {
+  const { user_id, subject_slug, topic_ids, time_slot, days } = req.body || {};
+  if (!(await currRequireUser(user_id, res))) return;
+  const s = await pool.query("SELECT slug FROM curriculum_subjects WHERE slug=$1", [subject_slug]);
+  if (!s.rows.length) return res.status(404).json({ error: "unknown subject" });
+  if (!Array.isArray(topic_ids) || !topic_ids.length) return res.status(400).json({ error: "topic_ids required" });
+  const remindAt = currNextSlot(time_slot);
+  if (!remindAt) return res.status(400).json({ error: "time_slot must be HH:MM" });
+  const owned = await pool.query(
+    "SELECT id FROM curriculum_topics WHERE subject_slug=$1 AND id = ANY($2::int[])",
+    [subject_slug, topic_ids]
+  );
+  if (owned.rows.length !== new Set(topic_ids).size) {
+    return res.status(400).json({ error: "all topic_ids must belong to the subject" });
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO curriculum_study_plans (student_id, subject_slug, time_slot, days)
+     VALUES ($1,$2,$3,$4) RETURNING id, created_at`,
+    [user_id, subject_slug, time_slot, days || ""]
+  );
+  const planId = rows[0].id;
+  for (const tid of new Set(topic_ids)) {
+    await pool.query(
+      "INSERT INTO curriculum_plan_reminders (plan_id, topic_id, remind_at) VALUES ($1,$2,$3)",
+      [planId, tid, remindAt]
+    );
+  }
+  res.json({ ok: true, plan_id: planId, reminders: new Set(topic_ids).size, remind_at: remindAt });
+});
+
+app.get("/api/curriculum/plans", async (req, res) => {
+  const user = req.query.user;
+  if (!user) return res.status(401).json({ error: "user required" });
+  const { rows } = await pool.query(
+    `SELECT p.id, p.subject_slug, p.time_slot, p.days, p.active, p.created_at,
+            (SELECT COUNT(*)::int FROM curriculum_plan_reminders r WHERE r.plan_id=p.id AND r.status='pending') AS pending
+     FROM curriculum_study_plans p WHERE p.student_id=$1 ORDER BY p.created_at DESC`,
+    [user]
+  );
+  res.json(rows);
+});
+
+// Due reminders for the (separately built) notification system.
+app.get("/api/curriculum/reminders/due", async (req, res) => {
+  const before = req.query.before ? new Date(req.query.before) : new Date();
+  const { rows } = await pool.query(
+    `SELECT r.id, r.plan_id, r.topic_id, r.remind_at, p.student_id, p.subject_slug, t.title AS topic_title
+     FROM curriculum_plan_reminders r
+     JOIN curriculum_study_plans p ON p.id=r.plan_id
+     JOIN curriculum_topics t ON t.id=r.topic_id
+     WHERE r.status='pending' AND r.remind_at <= $1 AND p.active
+     ORDER BY r.remind_at LIMIT 200`,
+    [before]
+  );
+  res.json(rows);
+});
+
+// ---- STEP 6: admin corrections (admin_users allow-list) ----
+
+app.patch("/api/curriculum/admin/topics/:id", async (req, res) => {
+  if (!(await currRequireAdmin(req, res))) return;
+  const { title, notes, topic_order } = req.body || {};
+  const sets = [];
+  const vals = [];
+  if (title !== undefined) {
+    vals.push(title);
+    sets.push(`title=$${vals.length}`);
+  }
+  if (notes !== undefined) {
+    vals.push(notes);
+    sets.push(`notes=$${vals.length}`);
+  }
+  if (topic_order !== undefined) {
+    vals.push(topic_order);
+    sets.push(`topic_order=$${vals.length}`);
+  }
+  if (!sets.length) return res.status(400).json({ error: "nothing to update" });
+  vals.push(req.params.id);
+  const { rows } = await pool.query(
+    `UPDATE curriculum_topics SET ${sets.join(", ")} WHERE id=$${vals.length}
+     RETURNING id, subject_slug, parent_topic_id, title, topic_order, notes`,
+    vals
+  );
+  if (!rows.length) return res.status(404).json({ error: "unknown topic" });
+  res.json(rows[0]);
+});
+
+app.post("/api/curriculum/admin/subjects/:slug/topics", async (req, res) => {
+  if (!(await currRequireAdmin(req, res))) return;
+  const { title, notes, parent_topic_id, topic_order } = req.body || {};
+  if (!title) return res.status(400).json({ error: "title required" });
+  if (parent_topic_id) {
+    const p = await pool.query("SELECT subject_slug FROM curriculum_topics WHERE id=$1", [parent_topic_id]);
+    if (!p.rows.length || p.rows[0].subject_slug !== req.params.slug) {
+      return res.status(400).json({ error: "parent must belong to the same subject" });
+    }
+  }
+  const max = await pool.query("SELECT COALESCE(MAX(topic_order),0)::int AS m FROM curriculum_topics WHERE subject_slug=$1", [req.params.slug]);
+  const { rows } = await pool.query(
+    `INSERT INTO curriculum_topics (subject_slug, parent_topic_id, title, topic_order, notes)
+     VALUES ($1,$2,$3,$4,$5) RETURNING id, subject_slug, parent_topic_id, title, topic_order, notes`,
+    [req.params.slug, parent_topic_id || null, title, topic_order ?? max.rows[0].m + 1, notes || ""]
+  );
+  res.json(rows[0]);
+});
+
+app.put("/api/curriculum/admin/subjects/:slug/source", async (req, res) => {
+  if (!(await currRequireAdmin(req, res))) return;
+  const { source_url, source_note, syllabus_edition, last_verified_at } = req.body || {};
+  const { rows } = await pool.query("SELECT subject_slug FROM curriculum_sources WHERE subject_slug=$1", [req.params.slug]);
+  if (!rows.length) return res.status(404).json({ error: "unknown subject" });
+  const { rows: out } = await pool.query(
+    `UPDATE curriculum_sources
+     SET source_url=COALESCE($2,source_url), source_note=COALESCE($3,source_note),
+         syllabus_edition=COALESCE($4,syllabus_edition), last_verified_at=COALESCE($5,last_verified_at)
+     WHERE subject_slug=$1
+     RETURNING subject_slug, source_url, source_note, syllabus_edition, reliability, last_verified_at`,
+    [req.params.slug, source_url ?? null, source_note ?? null, syllabus_edition ?? null, last_verified_at ?? null]
+  );
+  res.json(out[0]);
+});
+
 app.listen(PORT, () => console.log(`betterme-server on http://localhost:${PORT}`));
