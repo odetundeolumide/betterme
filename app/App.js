@@ -317,6 +317,98 @@ function AppInner() {
   const [answerBody, setAnswerBody] = useState("");
   const [board, setBoard] = useState({ board: [], me: null });
 
+  // Curriculum syllabus (doc/WAEC_Subjects_and_Curriculum.md)
+  const [currDepts, setCurrDepts] = useState([]);
+  const [currDept, setCurrDept] = useState(null);
+  const [currSubjects, setCurrSubjects] = useState([]);
+  const [currSubject, setCurrSubject] = useState(null);
+  const [currProg, setCurrProg] = useState({});
+  const [planSel, setPlanSel] = useState([]);
+  const [planTime, setPlanTime] = useState("18:30");
+  const [planDays, setPlanDays] = useState("");
+  const [adminMsg, setAdminMsg] = useState("");
+  const [admSlug, setAdmSlug] = useState("");
+  const [admTitle, setAdmTitle] = useState("");
+  const [admNotes, setAdmNotes] = useState("");
+  const [admTopicId, setAdmTopicId] = useState("");
+  const [admParent, setAdmParent] = useState("");
+  const [admSrcUrl, setAdmSrcUrl] = useState("");
+  const [admSrcNote, setAdmSrcNote] = useState("");
+  const [admEdition, setAdmEdition] = useState("");
+
+  const loadCurrDepts = async () => {
+    const res = await fetch(`${API_URL}/api/curriculum/departments`);
+    setCurrDepts(res.ok ? await res.json() : []);
+    setScreen("currDepts");
+  };
+
+  const openCurrDept = async (d) => {
+    setCurrDept(d);
+    const res = await fetch(`${API_URL}/api/curriculum/departments/${d.slug}/subjects?user=${encodeURIComponent(userId)}`);
+    setCurrSubjects(res.ok ? await res.json() : []);
+    setScreen("currSubjects");
+  };
+
+  const openCurrSubject = async (slug) => {
+    const res = await fetch(`${API_URL}/api/curriculum/subjects/${slug}?user=${encodeURIComponent(userId)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    setCurrSubject(data);
+    setCurrProg(data.progress || {});
+    setPlanSel([]);
+    setScreen("currSubject");
+  };
+
+  const currFlatIds = (nodes) => nodes.reduce((a, n) => a.concat([n.id], currFlatIds(n.children || [])), []);
+
+  const cycleCurrStatus = async (topicId) => {
+    const cur = currProg[topicId] || "not_started";
+    const next = cur === "not_started" ? "studying" : cur === "studying" ? "done" : "not_started";
+    const res = await fetch(`${API_URL}/api/curriculum/progress`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, topic_id: topicId, status: next }),
+    });
+    if (res.ok) setCurrProg({ ...currProg, [topicId]: next });
+  };
+
+  const currRenderTopics = (nodes, depth) =>
+    nodes.map((n) => (
+      <View key={n.id}>
+        <TouchableOpacity onPress={() => cycleCurrStatus(n.id)}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xs, paddingLeft: depth * spacing.md }}>
+            <Badge label={currProg[n.id] === "done" ? "✓" : currProg[n.id] === "studying" ? "…" : "○"} color={currProg[n.id] === "done" ? colors.success : currProg[n.id] === "studying" ? colors.warning : colors.muted} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ ...type.body, fontWeight: depth === 0 ? "800" : "400" }}>{n.title}</Text>
+              {n.notes ? <Text style={{ ...type.small, color: colors.muted }}>{n.notes}</Text> : null}
+            </View>
+          </View>
+        </TouchableOpacity>
+        {currRenderTopics(n.children || [], depth + 1)}
+      </View>
+    ));
+
+  const submitCurrPlan = async () => {
+    if (!currSubject || !planSel.length) {
+      setMsg("Pick at least one topic for the plan.");
+      return;
+    }
+    const res = await fetch(`${API_URL}/api/curriculum/plans`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, subject_slug: currSubject.slug, topic_ids: planSel, time_slot: planTime, days: planDays }),
+    });
+    setMsg(res.ok ? "Study plan saved — reminders queued ✓" : "Plan failed — check the time slot (HH:MM).");
+  };
+
+  const currAdmin = async (path, method, body) => {
+    const res = await fetch(`${API_URL}${path}`, {
+      method, headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: userId, ...body }),
+    });
+    const data = await res.json().catch(() => ({}));
+    setAdminMsg(res.ok ? "Saved ✓" : `Failed (${res.status}): ${data.error || "see server"}`);
+    if (res.ok && currSubject) openCurrSubject(currSubject.slug);
+  };
+
   const loadPosts = async () => {
     const res = await fetch(`${API_URL}/api/posts?exam=${exam}`);
     setPosts(res.ok ? await res.json() : []);
@@ -824,6 +916,99 @@ function AppInner() {
     );
   }
 
+  if (screen === "currDepts") {
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title="📖 Syllabus" subtitle="WAEC departments · track every topic" color={colors.primary} />
+        {currDepts.length === 0 ? <EmptyState icon="📖" text="Could not load departments — is the server running?" /> : null}
+        {currDepts.map((d) => (
+          <MenuRow key={d.slug} icon={d.slug === "science" ? "🔬" : d.slug === "humanities" ? "🎭" : "💼"} title={d.name} subtitle={`${d.subject_count} subjects`} color={colors.primary} onPress={() => openCurrDept(d)} />
+        ))}
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
+    );
+  }
+
+  if (screen === "currSubjects") {
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title={currDept?.name || "Subjects"} subtitle="Core subjects always shown" color={colors.primary} />
+        {currSubjects.map((s) => (
+          <View key={s.slug}>
+            <MenuRow icon={s.is_core ? "⭐" : "📘"} title={`${s.name}${s.is_core ? " · core" : ""}`} subtitle={`${s.topic_count} topics${s.done_count ? ` · ${s.done_count} done` : ""}`} color={colors.primary} onPress={() => openCurrSubject(s.slug)} />
+            {s.eligibility_note ? <Text style={{ ...type.small, color: colors.warning, marginBottom: spacing.sm }}>Note: {s.eligibility_note}</Text> : null}
+          </View>
+        ))}
+        <Btn title="← Departments" variant="ghost" onPress={() => setScreen("currDepts")} />
+      </Screen>
+    );
+  }
+
+  if (screen === "currSubject" && currSubject) {
+    const ids = currFlatIds(currSubject.topics);
+    const done = ids.filter((id) => currProg[id] === "done").length;
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title={currSubject.name} subtitle={currSubject.is_core ? "Core subject" : "Department subject"} color={colors.primary} />
+        <Card accent={colors.success}>
+          <Text style={{ fontWeight: "800" }}>{done}/{ids.length} topics done</Text>
+          <ProgressBar value={ids.length ? done / ids.length : 0} color={colors.success} />
+        </Card>
+        <SectionTitle>Topics — tap to set status</SectionTitle>
+        {ids.length === 0 ? <EmptyState icon="📝" text="No topics imported for this subject yet." /> : null}
+        <Card>{currRenderTopics(currSubject.topics, 0)}</Card>
+        <SectionTitle>Study plan</SectionTitle>
+        <Card>
+          <Text style={{ ...type.small, color: colors.muted }}>Tick topics below, set a time, save — reminders queue for the notifier.</Text>
+          {currSubject.topics.map((t) => (
+            <TouchableOpacity key={t.id} onPress={() => setPlanSel(planSel.includes(t.id) ? planSel.filter((x) => x !== t.id) : [...planSel, t.id])}>
+              <Text style={{ ...type.body, paddingVertical: spacing.xs }}>{planSel.includes(t.id) ? "☑" : "☐"} {t.title}</Text>
+            </TouchableOpacity>
+          ))}
+          <Field label="Time slot (HH:MM)" value={planTime} onChangeText={setPlanTime} placeholder="18:30" />
+          <Field label="Days (optional, e.g. Mon,Wed,Fri)" value={planDays} onChangeText={setPlanDays} placeholder="Mon,Wed,Fri" />
+          <Btn title={`Save plan (${planSel.length} topics)`} onPress={submitCurrPlan} />
+        </Card>
+        <SectionTitle>Exam format</SectionTitle>
+        {currSubject.exam_papers.map((p, i) => (
+          <Card key={i}><Text style={{ fontWeight: "800" }}>{p.label}</Text><Text style={{ ...type.small }}>{p.format}</Text></Card>
+        ))}
+        <SectionTitle>Textbooks</SectionTitle>
+        {currSubject.textbooks.map((b, i) => (
+          <Text key={i} style={{ ...type.small, paddingVertical: spacing.xs }}>• {b}</Text>
+        ))}
+        {currSubject.source ? <Card accent={colors.warning}><Text style={{ ...type.small }}>Source: {currSubject.source.source_note || currSubject.source.source_url} Confirm against your school's syllabus.</Text></Card> : null}
+        <Btn title="🔧 Admin corrections" variant="ghost" onPress={() => { setAdminMsg(""); setAdmSlug(currSubject.slug); setScreen("currAdmin"); }} />
+        <Btn title="← Subjects" variant="ghost" onPress={() => setScreen("currSubjects")} />
+        {msg ? <Text>{msg}</Text> : null}
+      </Screen>
+    );
+  }
+
+  if (screen === "currAdmin") {
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title="🔧 Admin corrections" subtitle="Admins only — edits are live immediately" color={colors.text} />
+        {adminMsg ? <Card><Text>{adminMsg}</Text></Card> : null}
+        <SectionTitle>Add topic</SectionTitle>
+        <Field label="Subject slug" value={admSlug} onChangeText={setAdmSlug} placeholder="biology" />
+        <Field label="Title" value={admTitle} onChangeText={setAdmTitle} placeholder="New topic title" />
+        <Field label="Notes (optional)" value={admNotes} onChangeText={setAdmNotes} placeholder="Limits…" />
+        <Field label="Parent topic id (optional)" value={admParent} onChangeText={setAdmParent} placeholder="empty = top level" keyboardType="numeric" />
+        <Btn title="Add topic" onPress={() => currAdmin(`/api/curriculum/admin/subjects/${admSlug}/topics`, "POST", { title: admTitle, notes: admNotes, parent_topic_id: admParent ? +admParent : null })} />
+        <SectionTitle>Edit topic</SectionTitle>
+        <Field label="Topic id" value={admTopicId} onChangeText={setAdmTopicId} placeholder="e.g. 12" keyboardType="numeric" />
+        <Btn title="Save title + notes" onPress={() => currAdmin(`/api/curriculum/admin/topics/${admTopicId}`, "PATCH", { title: admTitle || undefined, notes: admNotes || undefined })} />
+        <SectionTitle>Update source</SectionTitle>
+        <Field label="Source URL" value={admSrcUrl} onChangeText={setAdmSrcUrl} placeholder="https://…" />
+        <Field label="Source note" value={admSrcNote} onChangeText={setAdmSrcNote} placeholder="Where this came from" />
+        <Field label="Syllabus edition" value={admEdition} onChangeText={setAdmEdition} placeholder="2026" />
+        <Btn title="Verify source now" onPress={() => currAdmin(`/api/curriculum/admin/subjects/${admSlug}/source`, "PUT", { source_url: admSrcUrl || undefined, source_note: admSrcNote || undefined, syllabus_edition: admEdition || undefined, last_verified_at: new Date().toISOString() })} />
+        <Btn title="← Back" variant="ghost" onPress={() => setScreen(currSubject ? "currSubject" : "currDepts")} />
+      </Screen>
+    );
+  }
+
   if (screen === "mocksetup") {
     const mockOptions = () => {
       if (!spec) return [];
@@ -952,6 +1137,7 @@ function AppInner() {
       <SectionTitle>Help & community</SectionTitle>
       <MenuRow icon="✨" title="Ask AI tutor" subtitle="Knows your weak topics" color={colors.tutor} onPress={() => openTutor(null)} />
       <MenuRow icon="💬" title="Community Q&A" subtitle="Ask peers · leaderboard inside" color={colors.warning} onPress={loadPosts} />
+      <MenuRow icon="📖" title="Syllabus & progress" subtitle="Departments · subjects · topic checklist" color={colors.success} onPress={loadCurrDepts} />
       {weakNote ? <MenuRow icon="📘" title={`Notes: ${weakNote.name}`} subtitle="Your weakest topic" color={colors.secondary} onPress={() => openNotes(weakNote)} /> : null}
 
       {dash.badges.length > 0 ? (
