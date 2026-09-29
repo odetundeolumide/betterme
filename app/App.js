@@ -754,7 +754,7 @@ function AppInner() {
       await setSecureScreen(false).catch(() => {});
       await fetch(`${API_URL}/api/exam-sessions/${proctor.sessionId}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ student_id: userId, camera_status: proctor.cameraOff ? "off" : "active", needs_review: camIssue }),
+        body: JSON.stringify({ student_id: userId, camera_status: proctor.cameraOff ? "off" : "active", needs_review: camIssue, results_final: true }),
       }).catch(() => {});
       setProctor(null);
       setProctorArmed(false);
