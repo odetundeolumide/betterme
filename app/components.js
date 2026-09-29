@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { TouchableOpacity, Pressable, Text, View, ScrollView, TextInput } from "react-native";
+import { useState, useEffect } from "react";
+import { TouchableOpacity, Pressable, Text, View, ScrollView, TextInput, Animated } from "react-native";
 import { colors, spacing, radius, type, shadow, page } from "./theme";
 
 // Page scaffold: warm bg, safe padding, centered column on web.
@@ -13,24 +13,52 @@ export const Screen = ({ children, bg, fab }) => (
   </View>
 );
 
-// Floating ✨ tutor button for bottom-right navigation
-export const Fab = ({ onPress, icon = "✨", color = colors.tutor }) => {
-  const [hover, setHover] = useState(false);
+// Animated female tutor buddy: bobs gently, speech bubble invites chat.
+// Pure views (no assets) so it works identically on web + native.
+export const TutorBuddy = ({ onPress }) => {
+  const bob = useState(() => new Animated.Value(0))[0];
+  const [hideTip, setHideTip] = useState(false);
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bob, { toValue: -6, duration: 1200, useNativeDriver: true }),
+        Animated.timing(bob, { toValue: 0, duration: 1200, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [bob]);
   return (
-    <Pressable
-      onPress={onPress}
-      onHoverIn={() => setHover(true)}
-      onHoverOut={() => setHover(false)}
-      accessibilityLabel="Open AI tutor"
-      style={{
-        width: 60, height: 60, borderRadius: 30,
-        backgroundColor: color, alignItems: "center", justifyContent: "center",
-        ...(hover ? shadow.hover : shadow.card),
-        ...(hover ? { transform: [{ scale: 1.08 }] } : null),
-      }}
-    >
-      <Text style={{ fontSize: 26 }}>{icon}</Text>
-    </Pressable>
+    <View style={{ alignItems: "flex-end" }}>
+      {!hideTip ? (
+        <View style={{ backgroundColor: "#fff", borderRadius: 12, paddingVertical: 6, paddingHorizontal: 10, marginBottom: 6, marginRight: 4, borderWidth: 1.5, borderColor: colors.tutor, ...shadow.card, maxWidth: 160 }}>
+          <Text style={{ fontSize: 12, fontWeight: "800", color: colors.text, textAlign: "center" }}>Confused? Let's chat 💬</Text>
+          <View style={{ position: "absolute", bottom: -5, right: 22, width: 10, height: 10, backgroundColor: "#fff", borderRightWidth: 1.5, borderBottomWidth: 1.5, borderColor: colors.tutor, transform: [{ rotate: "45deg" }] }} />
+          <Pressable onPress={() => setHideTip(true)} style={{ position: "absolute", top: -9, right: -7, width: 18, height: 18, borderRadius: 9, backgroundColor: colors.muted, alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "800" }}>×</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      <Pressable onPress={onPress} accessibilityLabel="Open AI tutor">
+        <Animated.View style={{ transform: [{ translateY: bob }], alignItems: "center" }}>
+          <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: "#3a2a20", alignItems: "center", justifyContent: "center", ...shadow.hover }}>
+            <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: "#f6c89f", alignItems: "center", overflow: "hidden" }}>
+              <View style={{ width: 50, height: 15, backgroundColor: "#3a2a20", borderBottomLeftRadius: 22, borderBottomRightRadius: 22 }} />
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 7 }}>
+                <View style={{ width: 6, height: 8, borderRadius: 3, backgroundColor: "#14213d" }} />
+                <View style={{ width: 6, height: 8, borderRadius: 3, backgroundColor: "#14213d" }} />
+              </View>
+              <View style={{ width: 16, height: 9, borderBottomWidth: 2.5, borderColor: "#b34a3f", borderBottomLeftRadius: 10, borderBottomRightRadius: 10, marginTop: 1 }} />
+              <View style={{ flexDirection: "row", gap: 14, marginTop: 3 }}>
+                <View style={{ width: 8, height: 5, borderRadius: 4, backgroundColor: "#f0a080" }} />
+                <View style={{ width: 8, height: 5, borderRadius: 4, backgroundColor: "#f0a080" }} />
+              </View>
+            </View>
+          </View>
+          <View style={{ width: 46, height: 15, backgroundColor: colors.tutor, borderTopLeftRadius: 11, borderTopRightRadius: 11, marginTop: -9 }} />
+        </Animated.View>
+      </Pressable>
+    </View>
   );
 };
 

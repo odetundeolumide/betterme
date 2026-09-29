@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, Text } from "react-native";
 import { colors, spacing, type } from "./theme";
-import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow, Screen, PageHeader, HoverCard, MenuRow, EmptyState, Field, Fab } from "./components";
+import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow, Screen, PageHeader, HoverCard, MenuRow, EmptyState, Field, Fab, TutorBuddy } from "./components";
 import { savePack, loadPack, queueAttempt, pendingAttempts, dropQueued, pendingCount, uuid } from "./offline";
 
 // Shows errors on screen instead of a blank page
@@ -360,7 +360,7 @@ function AppInner() {
     setScreen("board");
   };
 
-  const tutorFab = <Fab icon="🎓" onPress={() => openTutor(null)} />;
+  const tutorFab = <TutorBuddy onPress={() => openTutor(null)} />;
   const [mockLabel, setMockLabel] = useState("");
   const [mq, setMq] = useState([]);
   const [mqi, setMqi] = useState(0);
