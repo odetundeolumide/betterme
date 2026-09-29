@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { View, Text, TextInput, TouchableOpacity, ScrollView } from "react-native";
 import { colors, spacing, type, radius, shadow, page } from "./theme";
-import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow, Screen, PageHeader, HoverCard, MenuRow, EmptyState, Field, Fab, TutorBuddy, TimerPill } from "./components";
+import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow, Screen, PageHeader, HoverCard, MenuRow, EmptyState, Field, Fab, TutorBuddy, TimerPill, PrePrompt } from "./components";
 import { savePack, loadPack, queueAttempt, pendingAttempts, dropQueued, pendingCount, uuid } from "./offline";
+import { logPerm, setupChannels, notifStatus, requestNotifPermission, registerToken, openAppSettings, scheduleLocalReminder, iosNeedsInstall } from "./notify";
 
 // Shows errors on screen instead of a blank page
 class Boundary extends React.Component {
@@ -316,6 +317,54 @@ function AppInner() {
   const [newBody, setNewBody] = useState("");
   const [answerBody, setAnswerBody] = useState("");
   const [board, setBoard] = useState({ board: [], me: null });
+
+  // Part A: notifications (pre-prompt first, system prompt only on Continue)
+  const [notifMsg, setNotifMsg] = useState("");
+  const [notifState, setNotifState] = useState(null);
+  const [myPlans, setMyPlans] = useState([]);
+
+  const openNotifPrompt = async () => {
+    setNotifMsg("");
+    if (typeof iosNeedsInstall === "function" && iosNeedsInstall()) {
+      setScreen("notifPromptIos");
+      return;
+    }
+    const st = await notifStatus().catch(() => "unknown");
+    setNotifState(st);
+    await logPerm(userId, "notifications", "", "prompt_shown");
+    setScreen("notifPrompt");
+  };
+
+  const doNotifEnable = async () => {
+    setNotifMsg("");
+    try {
+      await setupChannels();
+    } catch {}
+    const st = await requestNotifPermission().catch(() => "denied_once");
+    await logPerm(userId, "notifications", notifState || "", st);
+    setNotifState(st);
+    if (st === "granted") {
+      try {
+        await registerToken(userId);
+        setNotifMsg("Reminders on ✓ — check Settings to set time and quiet hours.");
+      } catch (e) {
+        setNotifMsg("Notifications allowed, but push needs a dev build — in-app reminders still work. (" + e.message + ")");
+      }
+      setScreen("home");
+      return;
+    }
+    if (st === "permanently_denied") {
+      setNotifMsg("Blocked in system settings. Open settings to allow, or use in-app reminders below.");
+      return;
+    }
+    setNotifMsg("No problem — in-app reminders and email fallback still work.");
+  };
+
+  const loadMyReminders = async () => {
+    const res = await fetch(`${API_URL}/api/curriculum/plans?user=${encodeURIComponent(userId)}`);
+    setMyPlans(res.ok ? await res.json() : []);
+    setScreen("myReminders");
+  };
 
   // Curriculum syllabus (doc/WAEC_Subjects_and_Curriculum.md)
   const [currDepts, setCurrDepts] = useState([]);
@@ -1009,6 +1058,85 @@ function AppInner() {
     );
   }
 
+  if (screen === "notifPrompt") {
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title="🔔 Reminders" subtitle="Only when you say yes" color={colors.warning} />
+        {notifState === "permanently_denied" ? (
+          <Card accent={colors.danger}>
+            <Text style={{ ...type.body, fontWeight: "800" }}>Notifications are blocked in system settings.</Text>
+            <Text style={{ ...type.small, color: colors.muted }}>Open settings to allow them, or keep using in-app reminders — nothing breaks.</Text>
+            <Btn title="Open app settings" onPress={() => { logPerm(userId, "notifications", "permanently_denied", "settings_opened"); openAppSettings(); }} />
+            <Btn title="Use in-app reminders" variant="ghost" onPress={() => setScreen("myReminders")} />
+          </Card>
+        ) : (
+          <PrePrompt
+            icon="🔔"
+            title="Allow study reminders?"
+            what="BetterMe sends a short reminder at your chosen study time."
+            why="So you keep your streak without opening the app to check."
+            whenOn="Only at your time and days, never at night if you set quiet hours."
+            notDo="No ads. No spam. No selling your contact. Token is only a random address for your device."
+            onContinue={doNotifEnable}
+            onLater={() => setScreen("home")}
+          />
+        )}
+        {notifMsg ? <Card><Text>{notifMsg}</Text></Card> : null}
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
+    );
+  }
+
+  if (screen === "notifPromptIos") {
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title="🔔 Reminders on iPhone" subtitle="Install first, then allow" color={colors.warning} />
+        <Card>
+          <Text style={{ ...type.body, fontWeight: "800" }}>iPhones only allow web reminders for installed sites.</Text>
+          <Text style={{ ...type.body, color: colors.muted }}>1. Tap Share → Add to Home Screen.{"\n"}2. Open BetterMe from the home screen.{"\n"}3. Come back here and tap Continue.</Text>
+        </Card>
+        <Btn title="Continue" onPress={() => setScreen("notifPrompt")} />
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
+    );
+  }
+
+  if (screen === "battery") {
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title="🔋 Battery tips (optional)" subtitle="Only if reminders arrive late" color={colors.text} />
+        <Card>
+          <Text style={{ ...type.body }}>Some phones (Tecno, Infinix, Xiaomi, Samsung) pause apps in the background, which can delay reminders.</Text>
+        </Card>
+        <Card>
+          <Text style={{ ...type.body, fontWeight: "800" }}>If you want on-time reminders:</Text>
+          <Text style={{ ...type.small, color: colors.muted }}>Settings → Battery → find BetterMe → allow background activity / remove restrictions. Steps differ per brand — search "background" in your Settings app.</Text>
+        </Card>
+        <Card>
+          <Text style={{ ...type.small, color: colors.muted }}>Totally optional. Skipping changes nothing else — in-app reminders always work.</Text>
+        </Card>
+        <Btn title="Done" onPress={() => setScreen("home")} />
+      </Screen>
+    );
+  }
+
+  if (screen === "myReminders") {
+    return (
+      <Screen fab={tutorFab}>
+        <PageHeader title="🔔 My reminders" subtitle="In-app list — works with no permission" color={colors.warning} />
+        {myPlans.length === 0 ? <EmptyState icon="🔕" text="No study plans yet. Create one from a subject page." /> : null}
+        {myPlans.map((p) => (
+          <Card key={p.id}>
+            <Text style={{ fontWeight: "800" }}>{p.subject_slug} · {p.time_slot || "no time"} {p.days ? `· ${p.days}` : ""}</Text>
+            <Text style={{ ...type.small, color: colors.muted }}>{p.pending} reminder{p.pending === 1 ? "" : "s"} waiting</Text>
+          </Card>
+        ))}
+        <Btn title="Enable push reminders" onPress={openNotifPrompt} />
+        <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
+      </Screen>
+    );
+  }
+
   if (screen === "mocksetup") {
     const mockOptions = () => {
       if (!spec) return [];
@@ -1097,7 +1225,7 @@ function AppInner() {
   }
 
   if (screen === "settings") {
-    return <SettingsScreen api={API_URL} userId={userId} exam={exam} dash={dash} onSaved={() => setScreen("home")} onSignOut={() => { setScreen("home"); signOut(); }} />;
+    return <SettingsScreen api={API_URL} userId={userId} exam={exam} dash={dash} onSaved={() => setScreen("home")} onBattery={() => setScreen("battery")} onSignOut={() => { setScreen("home"); signOut(); }} />;
   }
 
   const daysLeft = (() => {
@@ -1126,6 +1254,7 @@ function AppInner() {
       <MenuRow icon="🎯" title="Diagnostic test" subtitle="15Q adaptive · find your level" color={colors.tutor} onPress={startDiagnostic} />
       <MenuRow icon="📝" title="Full mock exam" subtitle="Standard counts · real timing" color={colors.danger} onPress={() => setScreen("mocksetup")} />
       <MenuRow icon="📈" title="My progress" subtitle="Per-topic trends + mock history" color={colors.success} onPress={() => setScreen("progress")} />
+      <MenuRow icon="🔔" title="My reminders" subtitle="Study plans + push setup" color={colors.warning} onPress={loadMyReminders} />
 
       {dash.plan.length > 0 ? (
         <HoverCard accent={colors.success}>
@@ -1163,19 +1292,25 @@ function AppInner() {
   );
 }
 
-function SettingsScreen({ api, userId, exam, dash, onSaved, onSignOut }) {
+function SettingsScreen({ api, userId, exam, dash, onSaved, onSignOut, onBattery }) {
   const [examDate, setExamDate] = useState(dash.eprog.exam_date || "");
   const [target, setTarget] = useState(dash.eprog.target || "");
   const [rem, setRem] = useState(dash.prefs.reminder_time || "");
+  const [optIn, setOptIn] = useState(dash.prefs.notify_opt_in !== false);
+  const [days, setDays] = useState(dash.prefs.days || "");
+  const [quiet, setQuiet] = useState(
+    dash.prefs.quiet_start && dash.prefs.quiet_end ? `${dash.prefs.quiet_start}-${dash.prefs.quiet_end}` : ""
+  );
   const [msg, setMsg] = useState("");
   const save = async () => {
     await fetch(`${api}/exam-progress`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ user_id: userId, exam_code: exam, exam_date: examDate || null, target }),
     });
+    const [qs, qe] = quiet.split("-").map((s) => (s || "").trim());
     await fetch(`${api}/prefs`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: userId, reminder_time: rem }),
+      body: JSON.stringify({ user_id: userId, reminder_time: rem, notify_opt_in: optIn, days, quiet_start: qs || "", quiet_end: qe || "" }),
     });
     setMsg("Saved ✓");
     onSaved();
@@ -1186,7 +1321,11 @@ function SettingsScreen({ api, userId, exam, dash, onSaved, onSignOut }) {
       <Field label="Exam date (YYYY-MM-DD, optional)" value={examDate} onChangeText={setExamDate} placeholder="2026-11-01" />
       <Field label="Target score / grade (optional)" value={target} onChangeText={setTarget} placeholder="A1 / 1300 / 320" />
       <Field label="Daily reminder time (HH:MM, optional)" value={rem} onChangeText={setRem} placeholder="18:00" />
+      <Btn title={optIn ? "Reminders: ON (tap to turn off)" : "Reminders: OFF (tap to turn on)"} variant="ghost" onPress={() => setOptIn(!optIn)} />
+      <Field label="Days (optional, e.g. Mon,Wed,Fri)" value={days} onChangeText={setDays} placeholder="Mon,Wed,Fri" />
+      <Field label="Quiet hours (optional, e.g. 22:00-06:00)" value={quiet} onChangeText={setQuiet} placeholder="22:00-06:00" />
       <Btn title="Save" onPress={save} />
+      <Btn title="🔋 Battery tips" variant="ghost" onPress={onBattery} />
       <Btn title="← Back home" variant="ghost" onPress={onSaved} />
       {msg ? <Card accent={colors.success}><Text>{msg}</Text></Card> : null}
       <SectionTitle>Account</SectionTitle>

@@ -210,3 +210,27 @@ export const LeaderRow = ({ rank, name, score, you }) => (
     <Text style={{ fontWeight: "800", color: colors.primaryDark }}>{score}</Text>
   </View>
 );
+
+// Pre-permission explainer (Part 0 rule): what / why / when-on / what-we-don't.
+// Rendered BEFORE any system prompt. "Later" never re-nags in-session.
+export const PrePrompt = ({ icon, title, what, why, whenOn, notDo, onContinue, onLater }) => (
+  <View style={{ gap: spacing.sm }}>
+    <Card accent={colors.primary}>
+      <Text style={{ fontSize: 40, textAlign: "center" }}>{icon}</Text>
+      <Text style={{ ...type.h1, textAlign: "center" }}>{title}</Text>
+    </Card>
+    {[
+      ["What happens", what],
+      ["Why we ask", why],
+      ["When it is on", whenOn],
+      ["What we do NOT do", notDo],
+    ].map(([h, p]) => (
+      <View key={h}>
+        <Text style={{ ...type.small, fontWeight: "800" }}>{h}</Text>
+        <Text style={{ ...type.body, color: colors.muted }}>{p}</Text>
+      </View>
+    ))}
+    <Btn title="Continue" onPress={onContinue} />
+    <Btn title="Later" variant="ghost" onPress={onLater} />
+  </View>
+);

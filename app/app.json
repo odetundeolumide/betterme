@@ -11,7 +11,8 @@
       "googleServicesFile": "./google-services.json"
     },
     "plugins": [
-      "expo-asset"
+      "expo-asset",
+      "expo-notifications"
     ]
   }
 }
