@@ -10,7 +10,7 @@ Recorded instead of guessed. Nothing here is decided until answered.
 - Service-account JSON verified (`firebase-adminsdk-fbsvc@betterme-b2856...`) → `server/firebase-service-account.json` (git-ignored), Downloads copy deleted ✅
 2. **Fallback channel — ANSWERED: email** via Gmail SMTP (`odetundeolumide94@gmail.com`, port 465 SSL, App Password in `server/.env`, test email sent+received). `nodemailer` added.
 3. **Exact alarms — ANSWERED: accept inexact.** Study reminders via `expo-notifications` triggers (≈15-min windows); no native exact-alarm module. If a reminder must be exact, the UI says so and falls back gracefully.
-4. **Local dev HTTPS**: web push needs HTTPS (localhost excepted). Production domain for VAPID/audience?
+4. **Production domain — DEFERRED.** Localhost-only until launch; configure VAPID audience + HTTPS then.
 
 ## Must answer before Part B code
 5. **Teacher/school roles**: the repo has no roles or schools (only `admin_users`). Where do teacher identity, school membership, and "that student's school" come from? New tables, or an external source?
