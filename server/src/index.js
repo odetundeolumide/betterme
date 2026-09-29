@@ -290,41 +290,66 @@ app.post("/api/tutor/ask", async (req, res) => {
   const strongList = ctx.strongTopics.map((s) => s.name).join(", ") || "none yet";
   const masteredList = ctx.mastered.map((m) => `"${m.stem}" (${m.topic})`).join("; ") || "none yet";
 
-  // No LLM key → honest rule-based fallback grounded in real data
-  if (!process.env.LLM_API_KEY) {
+  // Rule-based answer builder — used with no key AND when the provider fails,
+  // so students always get a grounded answer instead of an error.
+  const fallbackAnswer = () => {
     let answer;
     if (question) {
       const opts = typeof question.options === "string" ? JSON.parse(question.options) : question.options;
       const cleanNote = note ? note.replace(/\\n/g, " ").split(". ")[0] : null;
-      answer = `Let's break it down: "${question.stem}" The correct answer is "${opts[question.answer_idx]}". ${question.explanation}${cleanNote ? ` Key idea: ${cleanNote}.` : ""}`;
+      answer = `Here's the direct answer: "${opts[question.answer_idx]}". ${question.explanation}${cleanNote ? ` Key idea: ${cleanNote}.` : ""}`;
     } else if (ctx.weakTopics.length) {
       answer = `Your weakest topics right now: ${weakList}. I suggest starting with ${ctx.weakTopics[0].name} — tap "Practice" below for a drill.`;
     } else {
       answer = `Take the diagnostic first so I can learn your weak topics, then ask me anything like "explain this again in a simpler way".`;
     }
     if (ctx.strongTopics.length) answer += ` Good news: you've already mastered ${strongList}.`;
-    return res.json({ answer, suggestion: ctx.suggestion, source: "fallback" });
+    return answer;
+  };
+
+  // No LLM key → honest rule-based fallback grounded in real data
+  if (!process.env.LLM_API_KEY) {
+    return res.json({ answer: fallbackAnswer(), suggestion: ctx.suggestion, source: "fallback" });
   }
 
   // LLM path: all educational questions; step-by-step depth; conversational
   const system = `You are BetterMe, a friendly conversational tutor for ${exam_code} prep. Chat naturally like a patient teacher: acknowledge what the student says, reference the conversation so far, and ask one short follow-up when it helps.
 SCOPE: answer ANY education or study question — syllabus topics, past questions, general knowledge, study skills, exam strategy. If asked something non-educational (gossip, crime, explicit content, etc.), politely decline in one line and steer back to studying.
 STUDENT CONTEXT — weak topics: ${weakList}. Mastered: ${strongList}. Answered correctly before: ${masteredList}. Exam date: ${ctx.examDate || "unset"}, target: ${ctx.target || "unset"}.
-DEPTH RULES: never answer problem questions vaguely or in two lines. For math/science/computation: numbered STEP-BY-STEP working (Step 1, Step 2…), final answer stated clearly, then one exam tip. For theory: explain simply, give one concrete example, then one exam tip. When confused about something once known, remind them they got it right before and rebuild from that memory. Connect new ideas to mastered topics. End with one concrete next step.`;
+DEPTH RULES: never answer problem questions vaguely or in two lines. For math/science/computation: numbered STEP-BY-STEP working (Step 1, Step 2…), final answer stated clearly, then one exam tip. For theory: explain simply, give one concrete example, then one exam tip. When confused about something once known, remind them they got it right before and rebuild from that memory. Connect new ideas to mastered topics. End with one concrete next step.
+FOCUS RULES: NEVER repeat or restate the question back — start answering directly. Stay on the single topic asked; do not drift into other topics. Keep replies tight and chatty, not essays.`;
   const past = Array.isArray(history) ? history.slice(-6).map((m) => ({
     role: m.from === "tutor" ? "assistant" : "user", content: String(m.text || "").slice(0, 500),
   })) : [];
   const userMsg = question
-    ? `Question: ${question.stem}\nCorrect: ${(typeof question.options === "string" ? JSON.parse(question.options) : question.options)[question.answer_idx]}\nWhy: ${question.explanation}\nNotes: ${note || "n/a"}\nStudent asks: ${message}`
+    ? `Student asks: ${message}\n(About this quiz question — use as background, do not repeat it: "${question.stem}" Correct answer: ${(typeof question.options === "string" ? JSON.parse(question.options) : question.options)[question.answer_idx]}. Why: ${question.explanation}. Notes: ${note || "n/a"})`
     : `Student asks: ${message}`;
-  const r = await fetch(`${process.env.LLM_BASE_URL}/chat/completions`, {
+  const llmBody = JSON.stringify({ model: process.env.LLM_MODEL, messages: [{ role: "system", content: system }, ...past, { role: "user", content: userMsg }], max_completion_tokens: 800 });
+  const callLLM = () => fetch(`${process.env.LLM_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.LLM_API_KEY}` },
-    body: JSON.stringify({ model: process.env.LLM_MODEL, messages: [{ role: "system", content: system }, ...past, { role: "user", content: userMsg }], max_completion_tokens: 800 }),
+    body: llmBody,
   });
-  if (!r.ok) return res.status(502).json({ error: "tutor provider failed" });
+  let r;
+  try {
+    r = await callLLM();
+    // Retry rate-limits (429) and server errors (5xx) with backoff
+    for (let i = 0; i < 2 && r && (r.status === 429 || r.status >= 500); i++) {
+      const waitMs = Number(r.headers.get("retry-after")) * 1000 || (i === 0 ? 5000 : 15000);
+      console.error(`tutor provider ${r.status}, retrying in ${waitMs}ms`);
+      await new Promise((s) => setTimeout(s, waitMs));
+      r = await callLLM();
+    }
+  } catch (e) {
+    console.error("tutor provider network error:", e.message);
+  }
+  if (!r || !r.ok) {
+    if (r) console.error(`tutor provider failed: ${r.status}`);
+    // Provider down → grounded fallback instead of an error screen
+    return res.json({ answer: fallbackAnswer(), suggestion: ctx.suggestion, source: "fallback" });
+  }
   const data = await r.json();
-  res.json({ answer: data.choices?.[0]?.message?.content || "", suggestion: ctx.suggestion, source: "llm" });
+  res.json({ answer: data.choices?.[0]?.message?.content || fallbackAnswer(), suggestion: ctx.suggestion, source: "llm" });
 });
 
 // ---- Phase 6: community (C1/C2) + leaderboard (C3) ----

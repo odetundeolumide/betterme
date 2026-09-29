@@ -715,6 +715,7 @@ function AppInner() {
         <Field label="Your question" value={tmsg} onChangeText={setTmsg} placeholder="Ask, e.g. explain this again simply" />
         <Btn title="Send" onPress={() => askTutor()} />
         <Btn title="Explain simply" variant="ghost" onPress={() => askTutor("explain this again in a simpler way")} />
+        <Btn title="🆕 New chat" variant="ghost" onPress={() => { setChat([]); setTutorQ(null); setTmsg(""); }} />
         <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
       </Screen>
     );
