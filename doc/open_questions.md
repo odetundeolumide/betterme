@@ -5,7 +5,7 @@ Recorded instead of guessed. Nothing here is decided until answered.
 ## Firebase credentials — COMPLETE (Q1 done 2026-09-29)
 - Project ID: `betterme-b2856` ✅
 - Android: `com.odetundeolumide.betterme`, `google-services.json` wired at `app/` (git-ignored) ✅
-- Web `firebaseConfig` received (public keys; full object held in chat) ✅
+- Web `firebaseConfig` received (public keys; full object held in chat) ✅ → wired into `app/.env` (git-ignored) 2026-09-29
 - VAPID public key received → stored in `server/.env` (`FCM_VAPID_PUBLIC_KEY`, git-ignored) ✅
 - Service-account JSON verified (`firebase-adminsdk-fbsvc@betterme-b2856...`) → `server/firebase-service-account.json` (git-ignored), Downloads copy deleted ✅
 2. **Fallback channel — ANSWERED: email** via Gmail SMTP (`odetundeolumide94@gmail.com`, port 465 SSL, App Password in `server/.env`, test email sent+received). `nodemailer` added.
