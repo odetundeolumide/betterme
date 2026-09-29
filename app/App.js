@@ -47,6 +47,23 @@ function AppInner() {
   // Home dashboard data (Phase 4: H3/H4/H5, G1-G5)
   const [dash, setDash] = useState({ progress: [], plan: [], badges: [], mocks: [], prefs: {}, eprog: {}, lastScore: null });
   const [msg, setMsg] = useState("");
+  const [repeatNote, setRepeatNote] = useState("");
+
+  // Unseen-first loader: asks the server to exclude questions this student
+  // already answered. Falls back to plain random when signed out.
+  const loadQuestions = async (url) => {
+    setRepeatNote("");
+    const sep = url.includes("?") ? "&" : "?";
+    const full = userId ? `${url}${sep}user=${encodeURIComponent(userId)}&exclude_seen=1` : url;
+    const res = await fetch(full);
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const qs = Array.isArray(data) ? data : data.questions || [];
+    if (!Array.isArray(data) && data.repeated > 0) {
+      setRepeatNote(`${data.repeated} repeat${data.repeated > 1 ? "s" : ""} — question bank growing.`);
+    }
+    return qs;
+  };
   // Diagnostic state (PRD D1–D6, adaptive D3, pause/resume D4)
   const [quiz, setQuiz] = useState([]);
   const [qi, setQi] = useState(0);
@@ -127,9 +144,7 @@ function AppInner() {
     setMsg(""); setOfflineMode(false);
     let qs = null;
     try {
-      const res = await fetch(`${API_URL}/api/questions?exam=${exam}&topic=${topic.id}&limit=10`);
-      if (!res.ok) throw new Error();
-      qs = await res.json();
+      qs = await loadQuestions(`${API_URL}/api/questions?exam=${exam}&topic=${topic.id}&limit=10`);
     } catch {
       qs = packQuestions(topic.id, 10);
     }
@@ -669,9 +684,7 @@ function AppInner() {
       const url = topicId
         ? `${API_URL}/api/questions?exam=${exam}&topic=${topicId}&limit=${count}`
         : `${API_URL}/api/questions?exam=${exam}&limit=${count}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error();
-      qs = await res.json();
+      qs = await loadQuestions(url);
     } catch {
       qs = packQuestions(topicId, count);
     }
@@ -779,9 +792,7 @@ function AppInner() {
     setMsg(""); setOfflineMode(false);
     let all = null;
     try {
-      const res = await fetch(`${API_URL}/api/questions?exam=${exam}&limit=60`);
-      if (!res.ok) throw new Error();
-      all = await res.json();
+      all = await loadQuestions(`${API_URL}/api/questions?exam=${exam}&limit=60`);
     } catch {
       all = packQuestions(null, 60);
       if (!all) return setMsg("No connection and no downloaded pack — download once to practice offline.");
@@ -936,6 +947,7 @@ function AppInner() {
     return (
       <Screen>
         <PageHeader title={`Diagnostic ${qi + 1}/${quiz.length}`} subtitle={`Adaptive · level ${q.difficulty}`} color={colors.tutor} />
+        {repeatNote ? <Text style={{ ...type.small, color: colors.muted }}>{repeatNote}</Text> : null}
         <ProgressBar value={qi / quiz.length} color={colors.tutor} />
         <HoverCard>
           <Text style={{ fontSize: 17, fontWeight: "700", lineHeight: 24 }}>{q.stem}</Text>
@@ -983,6 +995,7 @@ function AppInner() {
     return (
       <Screen>
         <PageHeader title={`${ptopic.name} ${pqi + 1}/${pq.length}`} subtitle="Standard 10Q drill" color={colors.primary} />
+        {repeatNote ? <Text style={{ ...type.small, color: colors.muted }}>{repeatNote}</Text> : null}
         <TimerPill label={`${mm}:${ss}`} />
         <ProgressBar value={pqi / pq.length} />
         <HoverCard>
@@ -1472,6 +1485,7 @@ function AppInner() {
     return (
       <Screen>
         <PageHeader title={mockLabel} subtitle={`Q${mqi + 1}/${mq.length}`} color={colors.danger} />
+        {repeatNote ? <Text style={{ ...type.small, color: colors.muted }}>{repeatNote}</Text> : null}
         {proctor ? (
           <Card accent={colors.danger}>
             <Text style={{ fontWeight: "800", color: colors.danger }}>● REC — camera on, proctored</Text>

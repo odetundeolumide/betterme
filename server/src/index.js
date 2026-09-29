@@ -41,16 +41,44 @@ app.get("/api/topics", async (req, res) => {
 });
 
 app.get("/api/questions", async (req, res) => {
-  const { exam, topic, limit } = req.query;
-  const { rows } = await pool.query(
-    `SELECT id, exam_code, topic_id, stem, options, answer_idx, explanation, difficulty
-     FROM questions
+  const { exam, topic, limit, user, exclude_seen } = req.query;
+  const n = Math.min(Math.max(parseInt(limit, 10) || 15, 1), 150);
+  const base = `FROM questions
      WHERE ($1::text IS NULL OR exam_code = $1)
-       AND ($2::int IS NULL OR topic_id = $2)
-     ORDER BY RANDOM() LIMIT LEAST(COALESCE($3::int, 15), 150)`,
-    [exam || null, topic || null, limit || 15]
+       AND ($2::int IS NULL OR topic_id = $2)`;
+  const params = [exam || null, topic || null];
+  // Unseen-first: exclude question ids this student already answered so
+  // repeat trials and diagnostics feel fresh. When the bank runs dry we
+  // refill from seen questions and report how many repeats that meant.
+  let seenIds = [];
+  if (exclude_seen && user) {
+    const seen = await pool.query(
+      `SELECT DISTINCT (jsonb_array_elements_text(question_ids))::int AS qid FROM attempts
+       WHERE user_id=$1 AND exam_code=$2 AND ($3::int IS NULL OR topic_id=$3)`,
+      [user, exam || null, topic || null]
+    );
+    seenIds = seen.rows.map((r) => r.qid).filter(Number.isInteger);
+  }
+  const notSeen = seenIds.length ? ` AND id <> ALL($3::int[])` : "";
+  const fresh = await pool.query(
+    `SELECT id, exam_code, topic_id, stem, options, answer_idx, explanation, difficulty
+     ${base}${notSeen} ORDER BY RANDOM() LIMIT ${n}`,
+    seenIds.length ? [...params, seenIds] : params
   );
-  res.json(rows);
+  let repeated = 0;
+  let rows = fresh.rows;
+  if (rows.length < n && seenIds.length) {
+    const fill = await pool.query(
+      `SELECT id, exam_code, topic_id, stem, options, answer_idx, explanation, difficulty
+       ${base} AND id <> ALL($3::int[]) ORDER BY RANDOM() LIMIT ${n - rows.length}`,
+      [...params, rows.map((r) => r.id)]
+    );
+    repeated = fill.rows.length;
+    rows = rows.concat(fill.rows);
+  }
+  // Shuffle final order so refills don't cluster at the end.
+  rows = rows.sort(() => Math.random() - 0.5);
+  res.json({ questions: rows, repeated, unseen: fresh.rows.length });
 });
 
 // Standard exam specs (counts + timing, Phase 3)
@@ -574,10 +602,16 @@ app.put("/api/curriculum/progress", async (req, res) => {
 // ---- STEP 5: study plans (data model + API; delivery is separate) ----
 
 function currNextSlot(timeSlot) {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(timeSlot || "");
+  // Forgiving: "18:30", "6:30pm", "6.30 pm", extra spaces all work.
+  const m = /^\s*(\d{1,2})[:.](\d{2})\s*([aApP]\.?[mM]\.?)?\s*$/.exec(timeSlot || "");
   if (!m) return null;
+  let h = +m[1];
+  const min = +m[2];
+  if (min > 59) return null;
+  if (m[3]) h = (h % 12) + (/p/i.test(m[3]) ? 12 : 0);
+  if (h > 23) return null;
   const d = new Date();
-  d.setHours(+m[1], +m[2], 0, 0);
+  d.setHours(h, min, 0, 0);
   if (d <= new Date()) d.setDate(d.getDate() + 1);
   return d;
 }
