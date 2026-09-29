@@ -2,12 +2,37 @@ import { useState } from "react";
 import { TouchableOpacity, Pressable, Text, View, ScrollView, TextInput } from "react-native";
 import { colors, spacing, radius, type, shadow, page } from "./theme";
 
-// Page scaffold: warm bg, safe padding, centered column on web
-export const Screen = ({ children, bg }) => (
-  <ScrollView style={{ backgroundColor: bg || colors.bg }} contentContainerStyle={{ paddingBottom: spacing.xl }}>
-    <View style={{ padding: spacing.lg, gap: spacing.sm, ...page }}>{children}</View>
-  </ScrollView>
+// Page scaffold: warm bg, safe padding, centered column on web.
+// Optional floating action button (bottom-right) via `fab` node.
+export const Screen = ({ children, bg, fab }) => (
+  <View style={{ flex: 1, backgroundColor: bg || colors.bg, position: "relative" }}>
+    <ScrollView style={{ backgroundColor: bg || colors.bg }} contentContainerStyle={{ paddingBottom: spacing.xl }}>
+      <View style={{ padding: spacing.lg, gap: spacing.sm, ...page }}>{children}</View>
+    </ScrollView>
+    {fab ? <View style={{ position: "absolute", right: 16, bottom: 24 }}>{fab}</View> : null}
+  </View>
 );
+
+// Floating ✨ tutor button for bottom-right navigation
+export const Fab = ({ onPress, icon = "✨", color = colors.tutor }) => {
+  const [hover, setHover] = useState(false);
+  return (
+    <Pressable
+      onPress={onPress}
+      onHoverIn={() => setHover(true)}
+      onHoverOut={() => setHover(false)}
+      accessibilityLabel="Open AI tutor"
+      style={{
+        width: 60, height: 60, borderRadius: 30,
+        backgroundColor: color, alignItems: "center", justifyContent: "center",
+        ...(hover ? shadow.hover : shadow.card),
+        ...(hover ? { transform: [{ scale: 1.08 }] } : null),
+      }}
+    >
+      <Text style={{ fontSize: 26 }}>{icon}</Text>
+    </Pressable>
+  );
+};
 
 // Gradient-feel header band per section
 export const PageHeader = ({ title, subtitle, color }) => (

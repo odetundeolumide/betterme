@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, Text } from "react-native";
 import { colors, spacing, type } from "./theme";
-import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow, Screen, PageHeader, HoverCard, MenuRow, EmptyState, Field } from "./components";
+import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow, Screen, PageHeader, HoverCard, MenuRow, EmptyState, Field, Fab } from "./components";
 import { savePack, loadPack, queueAttempt, pendingAttempts, dropQueued, pendingCount, uuid } from "./offline";
 
 // Shows errors on screen instead of a blank page
@@ -345,6 +345,7 @@ function AppInner() {
     setScreen("board");
   };
 
+  const tutorFab = <Fab onPress={() => openTutor(null)} />;
   const [mockLabel, setMockLabel] = useState("");
   const [mq, setMq] = useState([]);
   const [mqi, setMqi] = useState(0);
@@ -538,7 +539,7 @@ function AppInner() {
 
   if (screen === "design") {
     return (
-      <Screen>
+      <Screen fab={tutorFab}>
         <PageHeader title="Design system" subtitle="Tokens + components" color={colors.text} />
         <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
         <SectionTitle>Colors</SectionTitle>
@@ -592,7 +593,7 @@ function AppInner() {
     });
     const weak = Object.entries(perTopic).sort((a, b) => a[1].ok / a[1].n - b[1].ok / b[1].n)[0];
     return (
-      <Screen>
+      <Screen fab={tutorFab}>
         <PageHeader title={`Results: ${score}/${answers.length}`} subtitle={weak ? `Weakest: ${weak[0]} — practice it next` : "Diagnostic complete"} color={score / Math.max(answers.length, 1) >= 0.6 ? colors.success : colors.warning} />
         {Object.entries(perTopic).map(([name, v]) => (
           <HoverCard key={name}>
@@ -632,7 +633,7 @@ function AppInner() {
   if (screen === "review") {
     const score = pans.filter((a) => a.correct).length;
     return (
-      <Screen>
+      <Screen fab={tutorFab}>
         <PageHeader title={`Practice: ${score}/${pans.length}`} subtitle={score / Math.max(pans.length, 1) >= 0.7 ? "Solid work 🎉" : "Review the misses below"} color={score / Math.max(pans.length, 1) >= 0.7 ? colors.success : colors.primary} />
         {pans.map((a, i) => {
           const opts = typeof a.q.options === "string" ? JSON.parse(a.q.options) : a.q.options;
@@ -668,7 +669,7 @@ function AppInner() {
 
   if (screen === "notes") {
     return (
-      <Screen>
+      <Screen fab={tutorFab}>
         <PageHeader title={`📘 ${ptopic ? ptopic.name : "Notes"}`} subtitle="Key ideas & formulas" color={colors.secondary} />
         <HoverCard><Text style={{ ...type.body }}>{note ? note.body_md : "Loading…"}</Text></HoverCard>
         {ptopic ? <Btn title="Practice this topic →" onPress={() => startPractice(ptopic)} /> : null}
@@ -705,7 +706,7 @@ function AppInner() {
 
   if (screen === "community") {
     return (
-      <Screen>
+      <Screen fab={tutorFab}>
         <PageHeader title={`Community — ${exam}`} subtitle="One shared feed, filtered by exam" color={colors.warning} />
         <SectionTitle>Ask a question</SectionTitle>
         <Field label="Title" value={newTitle} onChangeText={setNewTitle} placeholder="e.g. Why is (x−2)(x−3)=0?" />
@@ -727,7 +728,7 @@ function AppInner() {
 
   if (screen === "post" && postDetail) {
     return (
-      <Screen>
+      <Screen fab={tutorFab}>
         <PageHeader title="Question" subtitle={`${postDetail.user_id} · ${postDetail.topic_name || postDetail.exam_code}`} color={colors.warning} />
         <HoverCard><Text style={{ ...type.h2 }}>{postDetail.title}</Text>{postDetail.body ? <Text style={{ ...type.body, marginTop: spacing.xs }}>{postDetail.body}</Text> : null}</HoverCard>
         <SectionTitle>Answers ({postDetail.answers.length})</SectionTitle>
@@ -748,7 +749,7 @@ function AppInner() {
 
   if (screen === "board") {
     return (
-      <Screen>
+      <Screen fab={tutorFab}>
         <PageHeader title={`🏆 Leaderboard`} subtitle={`${exam} · by quiz scores`} color={colors.warning} />
         {board.board.length === 0 ? <EmptyState icon="🏁" text="No quiz scores yet. Finish a quiz to rank." /> : null}
         {board.board.map((b) => (
@@ -773,7 +774,7 @@ function AppInner() {
       return [{ label: `Full paper · ${total.questions}Q in ${total.minutes} min`, count: total.questions, minutes: total.minutes, topicId: null }];
     };
     return (
-      <Screen>
+      <Screen fab={tutorFab}>
         <PageHeader title={`Mock — ${exam}`} subtitle="Standard counts · real timing" color={colors.danger} />
         {mockOptions().map((o) => (
           <MenuRow key={o.label} icon="📝" title={o.label} subtitle={`${o.minutes} min on the clock`} color={colors.danger} onPress={() => startMock(o.label, o.count, o.minutes, o.topicId)} />
@@ -809,7 +810,7 @@ function AppInner() {
     const score = mans.filter((a) => a.correct).length;
     const delta = mprev ? score / mans.length - mprev.score / Math.max(mprev.total, 1) : null;
     return (
-      <Screen>
+      <Screen fab={tutorFab}>
         <PageHeader title={`Mock: ${score}/${mans.length}`} subtitle={mprev ? "vs your last mock" : "Baseline set — beat it next time"} color={mprev && delta >= 0 ? colors.success : colors.danger} />
         {mprev ? (
           <HoverCard accent={delta >= 0 ? colors.success : colors.danger}>
@@ -826,7 +827,7 @@ function AppInner() {
 
   if (screen === "progress") {
     return (
-      <Screen>
+      <Screen fab={tutorFab}>
         <PageHeader title={`Progress — ${exam}`} subtitle="Per-topic averages across all attempts" color={colors.success} />
         {dash.progress.length === 0 ? <EmptyState icon="📈" text="No attempts yet. Take the diagnostic first." /> : null}
         {dash.progress.map((p) => (
@@ -860,7 +861,7 @@ function AppInner() {
   const weakNote = dash.plan[0] ? topics.find((t) => t.id === dash.plan[0].topic_id) : null;
 
   return (
-    <Screen>
+    <Screen fab={tutorFab}>
       <PageHeader title={`👋 ${exam}${exam === "WAEC" && dept ? ` · ${dept}` : ""}`} subtitle={countdownText || "Pick a drill below to keep improving"} color={colors.success} />
       {offlineMode ? <Badge label="OFFLINE MODE" color={colors.text} /> : null}
       {msg ? <Card accent={colors.primary}><Text>{msg}</Text></Card> : null}
