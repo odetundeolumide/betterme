@@ -13,7 +13,7 @@ Recorded instead of guessed. Nothing here is decided until answered.
 4. **Production domain — DEFERRED.** Localhost-only until launch; configure VAPID audience + HTTPS then.
 
 ## Must answer before Part B code
-5. **Teacher/school roles**: the repo has no roles or schools (only `admin_users`). Where do teacher identity, school membership, and "that student's school" come from? New tables, or an external source?
+5. **Teacher/school roles — DEFERRED.** No review UI or roles now; flags + snapshots are stored for later review. Revisit when a role source exists.
 6. **Snapshot storage**: Cloudflare R2 env vars exist for media — confirm snapshots go there (with server-side encryption), not Postgres.
 7. **Retention**: default 30 days after results are final — confirmed? Who marks results "final"?
 8. **Consent collection**: how do schools/parents actually sign — in-app checkbox by the student claiming parent approval, or a separate parent flow (SMS link?)?
