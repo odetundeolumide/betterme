@@ -9,7 +9,7 @@ Recorded instead of guessed. Nothing here is decided until answered.
 - VAPID public key received → stored in `server/.env` (`FCM_VAPID_PUBLIC_KEY`, git-ignored) ✅
 - Service-account JSON verified (`firebase-adminsdk-fbsvc@betterme-b2856...`) → `server/firebase-service-account.json` (git-ignored), Downloads copy deleted ✅
 2. **Fallback channel — ANSWERED: email** via Gmail SMTP (`odetundeolumide94@gmail.com`, port 465 SSL, App Password in `server/.env`, test email sent+received). `nodemailer` added.
-3. **Exact alarms**: true `AlarmManager` exact timing needs a dev-build native module (Expo managed + `expo-notifications` only does inexact scheduling). Accept inexact (≈15-min windows) for study reminders, or approve building a small native module?
+3. **Exact alarms — ANSWERED: accept inexact.** Study reminders via `expo-notifications` triggers (≈15-min windows); no native exact-alarm module. If a reminder must be exact, the UI says so and falls back gracefully.
 4. **Local dev HTTPS**: web push needs HTTPS (localhost excepted). Production domain for VAPID/audience?
 
 ## Must answer before Part B code
