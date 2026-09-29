@@ -452,6 +452,7 @@ function AppInner() {
       <View style={{ padding: 24, gap: 8 }}>
         <Text style={{ fontSize: 24, fontWeight: "700" }}>BetterMe</Text>
         <Text>Sign in to start your diagnostic.</Text>
+        <Text style={{ color: colors.muted, fontSize: 11 }}>build 2026-09-29c</Text>
         <TextInput placeholder="Email" value={email} onChangeText={setEmail} style={{ borderWidth: 1, padding: 8 }} />
         <TextInput placeholder="Password" secureTextEntry value={password} onChangeText={setPassword} style={{ borderWidth: 1, padding: 8 }} />
         <Button title="Sign up" onPress={() => callAuth("sign-up")} />
