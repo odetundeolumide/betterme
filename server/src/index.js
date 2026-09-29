@@ -224,7 +224,7 @@ app.get("/api/badges", async (req, res) => {
 
 // ---- Phase 5: AI tutor (T1–T4) ----
 
-// What the tutor knows: weak topics, recent history, exam date/target (T2)
+// What the tutor knows: weak + strong topics, past mastery, history, exam date/target (T2)
 async function tutorContext(user, exam) {
   const weak = await pool.query(
     `SELECT a.topic_id, t.name, AVG(a.score::float/NULLIF(jsonb_array_length(a.question_ids),0)) AS avg
@@ -233,13 +233,35 @@ async function tutorContext(user, exam) {
      GROUP BY a.topic_id, t.name ORDER BY avg ASC NULLS FIRST LIMIT 3`,
     [user, exam]
   );
+  const strong = await pool.query(
+    `SELECT a.topic_id, t.name, AVG(a.score::float/NULLIF(jsonb_array_length(a.question_ids),0)) AS avg
+     FROM attempts a LEFT JOIN topics t ON t.id=a.topic_id
+     WHERE a.user_id=$1 AND a.exam_code=$2 AND a.topic_id IS NOT NULL
+     GROUP BY a.topic_id, t.name HAVING AVG(a.score::float/NULLIF(jsonb_array_length(a.question_ids),0)) >= 0.8
+     ORDER BY avg DESC LIMIT 5`,
+    [user, exam]
+  );
   const hist = await pool.query(
     "SELECT status, score, jsonb_array_length(question_ids) AS total, created_at FROM attempts WHERE user_id=$1 AND exam_code=$2 ORDER BY created_at DESC LIMIT 5",
     [user, exam]
   );
+  // Things they got right before — recall anchors for "I forgot" moments
+  const mastered = await pool.query(
+    `SELECT q.stem, t.name AS topic FROM attempts a,
+            jsonb_array_elements_text(a.answers) WITH ORDINALITY AS ans(picked, i),
+            jsonb_array_elements_text(a.question_ids) WITH ORDINALITY AS qid(qid, i)
+     JOIN questions q ON q.id = qid.qid::int
+     LEFT JOIN topics t ON t.id = q.topic_id
+     WHERE a.user_id=$1 AND a.exam_code=$2
+       AND ans.picked::int = q.answer_idx
+     ORDER BY a.created_at DESC LIMIT 5`,
+    [user, exam]
+  ).catch(() => ({ rows: [] }));
   const ep = await pool.query("SELECT exam_date, target FROM exam_progress WHERE user_id=$1 AND exam_code=$2", [user, exam]);
   return {
     weakTopics: weak.rows,
+    strongTopics: strong.rows,
+    mastered: mastered.rows,
     recent: hist.rows,
     examDate: ep.rows[0]?.exam_date || null,
     target: ep.rows[0]?.target || null,
@@ -252,7 +274,7 @@ app.get("/api/tutor/context", async (req, res) => {
 });
 
 app.post("/api/tutor/ask", async (req, res) => {
-  const { user_id, exam_code, question_id, message } = req.body || {};
+  const { user_id, exam_code, question_id, message, history } = req.body || {};
   if (!message) return res.status(400).json({ error: "message required" });
   const ctx = await tutorContext(user_id, exam_code);
   let question = null, note = null;
@@ -265,6 +287,8 @@ app.post("/api/tutor/ask", async (req, res) => {
     }
   }
   const weakList = ctx.weakTopics.map((w) => `${w.name} (${w.avg === null ? "new" : Math.round(w.avg * 100) + "%"})`).join(", ") || "none yet";
+  const strongList = ctx.strongTopics.map((s) => s.name).join(", ") || "none yet";
+  const masteredList = ctx.mastered.map((m) => `"${m.stem}" (${m.topic})`).join("; ") || "none yet";
 
   // No LLM key → honest rule-based fallback grounded in real data
   if (!process.env.LLM_API_KEY) {
@@ -278,18 +302,24 @@ app.post("/api/tutor/ask", async (req, res) => {
     } else {
       answer = `Take the diagnostic first so I can learn your weak topics, then ask me anything like "explain this again in a simpler way".`;
     }
+    if (ctx.strongTopics.length) answer += ` Good news: you've already mastered ${strongList}.`;
     return res.json({ answer, suggestion: ctx.suggestion, source: "fallback" });
   }
 
-  // LLM path: grounded prompt with student context + question + notes
-  const system = `You are BetterMe, a tutor for ${exam_code} prep. Student weak topics: ${weakList}. Exam date: ${ctx.examDate || "unset"}, target: ${ctx.target || "unset"}. Be concise, exam-focused, and end with one concrete next step.`;
+  // LLM path: general questions welcome; grounded in strengths + mastery + question + notes
+  const system = `You are BetterMe, a friendly tutor for ${exam_code} prep. Answer ANY question the student asks — syllabus topics, general study help, or confusion about things they learned before.
+Student weak topics: ${weakList}. Topics already mastered: ${strongList}. Things they answered correctly before: ${masteredList}. Exam date: ${ctx.examDate || "unset"}, target: ${ctx.target || "unset"}.
+Rules: be concise and exam-focused; when they are confused about something they once knew, remind them they got it right before and rebuild from that memory; connect new ideas to their mastered topics; end with one concrete next step.`;
+  const past = Array.isArray(history) ? history.slice(-6).map((m) => ({
+    role: m.from === "tutor" ? "assistant" : "user", content: String(m.text || "").slice(0, 500),
+  })) : [];
   const userMsg = question
     ? `Question: ${question.stem}\nCorrect: ${(typeof question.options === "string" ? JSON.parse(question.options) : question.options)[question.answer_idx]}\nWhy: ${question.explanation}\nNotes: ${note || "n/a"}\nStudent asks: ${message}`
     : `Student asks: ${message}`;
   const r = await fetch(`${process.env.LLM_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.LLM_API_KEY}` },
-    body: JSON.stringify({ model: process.env.LLM_MODEL, messages: [{ role: "system", content: system }, { role: "user", content: userMsg }], max_tokens: 400 }),
+    body: JSON.stringify({ model: process.env.LLM_MODEL, messages: [{ role: "system", content: system }, ...past, { role: "user", content: userMsg }], max_completion_tokens: 500 }),
   });
   if (!r.ok) return res.status(502).json({ error: "tutor provider failed" });
   const data = await r.json();

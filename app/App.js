@@ -294,12 +294,13 @@ function AppInner() {
     const text = (preset || tmsg).trim();
     if (!text || tsending) return;
     setTsending(true);
+    const prior = chat.slice(-6);
     setChat((c) => [...c, { from: "you", text }]);
     setTmsg("");
     const res = await fetch(`${API_URL}/api/tutor/ask`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: userId, exam_code: exam, question_id: tutorQ ? tutorQ.id : null, message: text }),
+      body: JSON.stringify({ user_id: userId, exam_code: exam, question_id: tutorQ ? tutorQ.id : null, message: text, history: prior }),
     });
     const data = res.ok ? await res.json() : { answer: "Tutor is unreachable — try your notes for now.", suggestion: null, source: "error" };
     setChat((c) => [...c, { from: "tutor", text: data.answer }]);
