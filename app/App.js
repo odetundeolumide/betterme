@@ -149,11 +149,14 @@ function AppInner() {
     await fetch(`${API_URL}/api/reports`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question_id: qid, reason: "flagged from app review" }),
+      body: JSON.stringify({ question_id: qid, reason: reportText || "flagged from app review" }),
     });
+    setReportFor(null); setReportText("");
     setMsg("Reported — thank you. Our reviewers will check it.");
     trackEvent("report_create", { question_id: qid });
   };
+  const [reportFor, setReportFor] = useState(null);
+  const [reportText, setReportText] = useState("");
 
   // Phase 4: persist attempts, load dashboard
   const [startedAt, setStartedAt] = useState(null);
@@ -442,9 +445,43 @@ function AppInner() {
   };
 
   const pauseQuiz = () => {
-    setDraft({ quiz, qi, answers, target, streak });
+    setDraft({ kind: "diagnostic", quiz, qi, answers, target, streak });
     setScreen("home");
     setMsg("Diagnostic paused — tap Continue to resume.");
+  };
+
+  const pausePractice = () => {
+    setDraft({ kind: "practice", ptopic, pq, pqi, pans, secs });
+    setScreen("home");
+    setMsg("Practice paused — tap Continue to resume.");
+  };
+
+  const pauseMock = () => {
+    setDraft({ kind: "mock", mockLabel, mq, mqi, mans, msecs });
+    setScreen("home");
+    setMsg("Mock paused — tap Continue to resume.");
+  };
+
+  const resumeDraft = () => {
+    if (!draft) return;
+    if (draft.kind === "practice") {
+      setPtopic(draft.ptopic); setPq(draft.pq); setPqi(draft.pqi); setPans(draft.pans); setSecs(draft.secs);
+      setScreen("practice");
+    } else if (draft.kind === "mock") {
+      setMockLabel(draft.mockLabel); setMq(draft.mq); setMqi(draft.mqi); setMans(draft.mans); setMsecs(draft.msecs);
+      setScreen("mockrun");
+    } else {
+      setQuiz(draft.quiz); setQi(draft.qi); setAnswers(draft.answers); setTarget(draft.target); setStreak(draft.streak);
+      setScreen("quiz");
+    }
+  };
+
+  const signOut = () => {
+    setUserId(null); setExam(null); setDept(null); setTopics([]);
+    setDraft(null); setChat([]); setTutorCtx(null);
+    setDash({ progress: [], plan: [], badges: [], mocks: [], prefs: {}, eprog: {}, lastScore: null });
+    setEmail(""); setPassword(""); setMsg("");
+    setScreen("auth");
   };
 
   if (screen === "auth") {
@@ -587,6 +624,7 @@ function AppInner() {
           <Btn key={i} title={o} variant="ghost" onPress={() => answerPractice(i)} />
         ))}
         <Btn title="📘 Read notes first" variant="ghost" onPress={() => openNotes(ptopic)} />
+        <Btn title="⏸ Pause & continue later" variant="ghost" onPress={pausePractice} />
       </Screen>
     );
   }
@@ -610,8 +648,14 @@ function AppInner() {
               <Text style={{ ...type.small, color: colors.muted, marginTop: spacing.xs }}>{a.q.explanation}</Text>
               <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm }}>
                 <View style={{ flex: 1 }}><Btn title="✨ Tutor" variant="ghost" onPress={() => openTutor(a.q)} /></View>
-                <View style={{ flex: 1 }}><Btn title="🚩 Report" variant="ghost" onPress={() => reportQ(a.q.id)} /></View>
+                <View style={{ flex: 1 }}><Btn title="🚩 Report" variant="ghost" onPress={() => { setReportFor(a.q.id); setReportText(""); }} /></View>
               </View>
+              {reportFor === a.q.id ? (
+                <View style={{ marginTop: spacing.sm }}>
+                  <Field label="What's wrong?" value={reportText} onChangeText={setReportText} placeholder="e.g. answer should be B, typo in option C" />
+                  <Btn title="Send report" onPress={() => reportQ(a.q.id)} />
+                </View>
+              ) : null}
             </HoverCard>
           );
         })}
@@ -756,6 +800,7 @@ function AppInner() {
         {opts.map((o, i) => (
           <Btn key={i} title={o} variant="ghost" onPress={() => answerMock(i)} />
         ))}
+        <Btn title="⏸ Pause & continue later" variant="ghost" onPress={pauseMock} />
       </Screen>
     );
   }
@@ -802,25 +847,28 @@ function AppInner() {
   }
 
   if (screen === "settings") {
-    return <SettingsScreen api={API_URL} userId={userId} exam={exam} dash={dash} onSaved={() => setScreen("home")} />;
+    return <SettingsScreen api={API_URL} userId={userId} exam={exam} dash={dash} onSaved={() => setScreen("home")} onSignOut={() => { setScreen("home"); signOut(); }} />;
   }
 
   const daysLeft = (() => {
     if (!dash.eprog.exam_date) return null;
     return Math.ceil((new Date(dash.eprog.exam_date) - new Date()) / 86400000);
   })();
+  const countdownText = daysLeft === null ? null : daysLeft < 0
+    ? "📅 Exam date passed — update it in Settings"
+    : `⏳ ${daysLeft} days to exam${dash.eprog.target ? ` · target ${dash.eprog.target}` : ""}`;
   const weakNote = dash.plan[0] ? topics.find((t) => t.id === dash.plan[0].topic_id) : null;
 
   return (
     <Screen>
-      <PageHeader title={`👋 ${exam}${exam === "WAEC" && dept ? ` · ${dept}` : ""}`} subtitle={daysLeft !== null ? `⏳ ${daysLeft} days to exam${dash.eprog.target ? ` · target ${dash.eprog.target}` : ""}` : "Pick a drill below to keep improving"} color={colors.success} />
+      <PageHeader title={`👋 ${exam}${exam === "WAEC" && dept ? ` · ${dept}` : ""}`} subtitle={countdownText || "Pick a drill below to keep improving"} color={colors.success} />
       {offlineMode ? <Badge label="OFFLINE MODE" color={colors.text} /> : null}
       {msg ? <Card accent={colors.primary}><Text>{msg}</Text></Card> : null}
 
       {draft ? (
-        <HoverCard accent={colors.primary} onPress={() => { setQuiz(draft.quiz); setQi(draft.qi); setAnswers(draft.answers); setTarget(draft.target); setStreak(draft.streak); setScreen("quiz"); }}>
+        <HoverCard accent={colors.primary} onPress={resumeDraft}>
           <Text style={{ fontWeight: "800", fontSize: 15 }}>▶ Continue where you left off</Text>
-          <Text style={{ ...type.small, color: colors.muted }}>Resume your paused diagnostic ›</Text>
+          <Text style={{ ...type.small, color: colors.muted }}>Resume your paused {draft.kind === "mock" ? "mock" : draft.kind} ›</Text>
         </HoverCard>
       ) : null}
 
@@ -856,13 +904,15 @@ function AppInner() {
       <SectionTitle>Offline</SectionTitle>
       <MenuRow icon="⬇" title="Download pack" subtitle="Questions + notes for offline" color={colors.text} onPress={downloadPack} />
       {pending > 0 ? <MenuRow icon="⬆" title={`Sync ${pending} result${pending > 1 ? "s" : ""}`} subtitle="Waiting on device" color={colors.text} onPress={syncNow} /> : null}
+      <MenuRow icon="🔄" title="Switch exam" subtitle={`Now: ${exam}`} color={colors.muted} onPress={() => setScreen("exams")} />
+      {exam === "WAEC" ? <MenuRow icon="🏫" title="Switch department" subtitle={`Now: ${dept || "none"}`} color={colors.muted} onPress={() => pickExam("WAEC")} /> : null}
       <MenuRow icon="⚙" title="Settings" subtitle="Exam date · target · reminder" color={colors.muted} onPress={() => setScreen("settings")} />
       <MenuRow icon="🎨" title="Design system" subtitle="Tokens + components" color={colors.muted} onPress={() => setScreen("design")} />
     </Screen>
   );
 }
 
-function SettingsScreen({ api, userId, exam, dash, onSaved }) {
+function SettingsScreen({ api, userId, exam, dash, onSaved, onSignOut }) {
   const [examDate, setExamDate] = useState(dash.eprog.exam_date || "");
   const [target, setTarget] = useState(dash.eprog.target || "");
   const [rem, setRem] = useState(dash.prefs.reminder_time || "");
@@ -888,6 +938,8 @@ function SettingsScreen({ api, userId, exam, dash, onSaved }) {
       <Btn title="Save" onPress={save} />
       <Btn title="← Back home" variant="ghost" onPress={onSaved} />
       {msg ? <Card accent={colors.success}><Text>{msg}</Text></Card> : null}
+      <SectionTitle>Account</SectionTitle>
+      <MenuRow icon="🚪" title="Sign out" subtitle={userId || ""} color={colors.danger} onPress={onSignOut} />
     </Screen>
   );
 }
