@@ -17,7 +17,7 @@ Recorded instead of guessed. Nothing here is decided until answered.
 6. **Snapshot storage — ANSWERED: Cloudflare R2** (encrypted), metadata + flags in Postgres. R2 credentials still needed when Part B starts.
 7. **Retention — CONFIRMED: 30 days after results final** (auto-delete). Who/what marks results "final" still open — proposed: exam session closed + graded.
 8. **Consent collection — ANSWERED: in-app checkboxes.** Student ticks school consent + parent/guardian consent (with name/relationship) before the first proctored exam; both stored with notice version + timestamp.
-9. **Detection thresholds**: starting values for N seconds (no-face), yaw/pitch degrees, sustain time — per exam, or one global default (propose: N=10s, yaw=35°, pitch=25°, sustain=5s)?
+9. **Detection thresholds — ANSWERED: one global default** (no-face 10s, yaw 35°, pitch 25°, sustain 5s). Stored server-side so per-exam overrides can be added later without app changes.
 
 ## Legal/ownership (see docs/privacy_checklist.md once created)
 10. Who is the data controller contact for the privacy notice and deletion requests?
