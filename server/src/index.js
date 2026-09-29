@@ -187,19 +187,23 @@ app.get("/api/exam-progress", async (req, res) => {
   res.json(rows[0] || {});
 });
 
-// Reminder time (G4 — stored; native push comes later)
+// Reminder prefs (G4): time + opt-in, days, quiet hours (Part A).
 app.put("/api/prefs", async (req, res) => {
-  const { user_id, reminder_time } = req.body || {};
+  const { user_id, reminder_time, notify_opt_in, days, quiet_start, quiet_end } = req.body || {};
   if (!user_id) return res.status(400).json({ error: "user_id required" });
   await pool.query(
-    "INSERT INTO user_prefs (user_id, reminder_time) VALUES ($1,$2) ON CONFLICT (user_id) DO UPDATE SET reminder_time=EXCLUDED.reminder_time",
-    [user_id, reminder_time || ""]
+    `INSERT INTO user_prefs (user_id, reminder_time, notify_opt_in, days, quiet_start, quiet_end)
+     VALUES ($1,$2,COALESCE($3,TRUE),$4,$5,$6)
+     ON CONFLICT (user_id) DO UPDATE SET reminder_time=EXCLUDED.reminder_time,
+       notify_opt_in=CASE WHEN $3 IS NULL THEN user_prefs.notify_opt_in ELSE $3 END,
+       days=EXCLUDED.days, quiet_start=EXCLUDED.quiet_start, quiet_end=EXCLUDED.quiet_end`,
+    [user_id, reminder_time || "", notify_opt_in ?? null, days || "", quiet_start || "", quiet_end || ""]
   );
   res.json({ ok: true });
 });
 
 app.get("/api/prefs", async (req, res) => {
-  const { rows } = await pool.query("SELECT reminder_time FROM user_prefs WHERE user_id=$1", [req.query.user]);
+  const { rows } = await pool.query("SELECT reminder_time, notify_opt_in, days, quiet_start, quiet_end FROM user_prefs WHERE user_id=$1", [req.query.user]);
   res.json(rows[0] || {});
 });
 
@@ -718,6 +722,41 @@ app.post("/api/permission-events", async (req, res) => {
     [student_id || "", feature, from_state || "", to_state, platform || ""]
   );
   res.json({ ok: true });
+});
+
+// ---- Part A: device tokens + send worker ----
+
+// Register a push token (Android FCM token or web push subscription endpoint).
+app.post("/api/device-tokens", async (req, res) => {
+  const { user_id, platform, token } = req.body || {};
+  if (!user_id || !token) return res.status(400).json({ error: "user_id + token required" });
+  const u = await pool.query('SELECT 1 FROM "user" WHERE id=$1', [user_id]);
+  if (!u.rows.length) return res.status(404).json({ error: "unknown student" });
+  await pool.query(
+    `INSERT INTO device_tokens (student_id, platform, token, updated_at)
+     VALUES ($1,$2,$3,NOW()) ON CONFLICT (student_id, token) DO UPDATE SET updated_at=NOW()`,
+    [user_id, platform || "", token]
+  );
+  res.json({ ok: true });
+});
+
+app.delete("/api/device-tokens", async (req, res) => {
+  const { user_id, token } = req.body || {};
+  if (!user_id || !token) return res.status(400).json({ error: "user_id + token required" });
+  await pool.query("DELETE FROM device_tokens WHERE student_id=$1 AND token=$2", [user_id, token]);
+  res.json({ ok: true });
+});
+
+app.get("/api/notify-status", async (_req, res) => {
+  const { notifyStatus } = await import("./notify.js");
+  res.json(notifyStatus());
+});
+
+// Run the due-reminder worker now (cron calls this; manual for testing).
+app.post("/api/notifications/send-due", async (req, res) => {
+  const { sendDueReminders } = await import("./notify.js");
+  const out = await sendDueReminders(req.body?.before);
+  res.json({ sent: out });
 });
 
 app.listen(PORT, () => console.log(`betterme-server on http://localhost:${PORT}`));
