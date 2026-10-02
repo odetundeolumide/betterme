@@ -8,10 +8,24 @@ const API = "http://127.0.0.1:3000";
 const U = "test-proctor-user";
 const O = "test-proctor-other";
 let sessionId = null;
+let noticeVersion = null;
+let createdTestNotice = false;
 
 before(async () => {
   const h = await fetch(`${API}/api/health`).then((r) => r.json()).catch(() => null);
   assert.ok(h?.db === "up", "API must be running with DB up");
+  const activeNotice = await pool.query("SELECT version FROM consent_notices WHERE active ORDER BY version DESC LIMIT 1");
+  if (activeNotice.rows.length) {
+    noticeVersion = activeNotice.rows[0].version;
+  } else {
+    const next = await pool.query("SELECT COALESCE(MAX(version), 0) + 1 AS version FROM consent_notices");
+    noticeVersion = next.rows[0].version;
+    await pool.query(
+      "INSERT INTO consent_notices (version, title, body, active) VALUES ($1, 'Test-only notice', 'Test fixture; not approved for real consent.', TRUE)",
+      [noticeVersion]
+    );
+    createdTestNotice = true;
+  }
   for (const u of [U, O]) {
     await pool.query(`INSERT INTO "user" (id, name, email) VALUES ($1,$1,$2) ON CONFLICT (id) DO NOTHING`, [u, `${u}@test.local`]);
   }
@@ -19,7 +33,7 @@ before(async () => {
 
 test("consent: session blocked without both consents", async () => {
   const g = await fetch(`${API}/api/consents?user=${U}`).then((r) => r.json());
-  assert.ok(g.notice && g.notice.version === 1);
+  assert.ok(g.notice && g.notice.version === noticeVersion);
   assert.equal(g.complete, false);
   const r = await fetch(`${API}/api/exam-sessions`, {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -29,13 +43,28 @@ test("consent: session blocked without both consents", async () => {
   assert.equal((await r.json()).need_consent, true);
 });
 
+test("proctoring fails closed when no active notice is configured", async () => {
+  await pool.query("UPDATE consent_notices SET active=FALSE WHERE version=$1", [noticeVersion]);
+  try {
+    const consent = await fetch(`${API}/api/consents?user=${U}`);
+    assert.equal(consent.status, 503);
+    const session = await fetch(`${API}/api/exam-sessions`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_id: U, exam_code: "WAEC" }),
+    });
+    assert.equal(session.status, 503);
+  } finally {
+    await pool.query("UPDATE consent_notices SET active=TRUE WHERE version=$1", [noticeVersion]);
+  }
+});
+
 test("consent: parent needs a name; both consents unlock sessions", async () => {
   const post = (b) => fetch(`${API}/api/consents`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) });
-  let r = await post({ student_id: U, consent_type: "parent", notice_version: 1 });
+  let r = await post({ student_id: U, consent_type: "parent", notice_version: noticeVersion });
   assert.equal(r.status, 400);
-  r = await post({ student_id: U, consent_type: "school", notice_version: 1, consenter_name: "Test School" });
+  r = await post({ student_id: U, consent_type: "school", notice_version: noticeVersion, consenter_name: "Test School" });
   assert.equal(r.status, 200);
-  r = await post({ student_id: U, consent_type: "parent", notice_version: 1, consenter_name: "Test Parent", relationship: "mother" });
+  r = await post({ student_id: U, consent_type: "parent", notice_version: noticeVersion, consenter_name: "Test Parent", relationship: "mother" });
   assert.equal(r.status, 200);
   const g = await fetch(`${API}/api/consents?user=${U}`).then((x) => x.json());
   assert.equal(g.complete, true);
@@ -103,5 +132,6 @@ after(async () => {
   await pool.query("DELETE FROM consents WHERE student_id LIKE 'test-proctor-%'");
   await pool.query("DELETE FROM deletion_requests WHERE student_id LIKE 'test-proctor-%'");
   await pool.query('DELETE FROM "user" WHERE id LIKE \'test-proctor-%\'');
+  if (createdTestNotice) await pool.query("DELETE FROM consent_notices WHERE version=$1", [noticeVersion]);
   await pool.end();
 });

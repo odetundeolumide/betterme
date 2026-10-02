@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { View, Text, TextInput, TouchableOpacity, ScrollView } from "react-native";
 import { colors, spacing, type, radius, shadow, page } from "./theme";
-import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow, Screen, PageHeader, HoverCard, MenuRow, EmptyState, Field, Fab, TutorBuddy, TimerPill, PrePrompt } from "./components";
+import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow, Screen, PageHeader, HoverCard, MenuRow, EmptyState, Field, TutorBuddy, TimerPill, PrePrompt } from "./components";
 import { savePack, loadPack, queueAttempt, pendingAttempts, dropQueued, pendingCount, uuid } from "./offline";
 import { logPerm, setupChannels, notifStatus, requestNotifPermission, registerToken, openAppSettings, scheduleLocalReminder, iosNeedsInstall } from "./notify";
 import { CameraView } from "expo-camera";
@@ -66,6 +66,7 @@ function AppInner() {
   };
   // Diagnostic state (PRD D1–D6, adaptive D3, pause/resume D4)
   const [quiz, setQuiz] = useState([]);
+  const [quizPool, setQuizPool] = useState([]);
   const [qi, setQi] = useState(0);
   const [answers, setAnswers] = useState([]);
   const [target, setTarget] = useState(2);
@@ -95,7 +96,9 @@ function AppInner() {
       }
     }
     if (!res.ok) return setMsg(`Auth failed (${res.status}) — check email/password and tap Sign in.`);
-    setUserId(email);
+    const authResult = await res.json().catch(() => null);
+    if (!authResult?.user?.id) return setMsg("Sign-in succeeded but the account ID was missing. Please try again.");
+    setUserId(authResult.user.id);
     setScreen("exams");
   };
 
@@ -128,28 +131,37 @@ function AppInner() {
   const [pq, setPq] = useState([]);
   const [pqi, setPqi] = useState(0);
   const [pans, setPans] = useState([]);
+  const [practicePool, setPracticePool] = useState([]);
+  const [practiceTarget, setPracticeTarget] = useState(2);
+  const [practiceStreak, setPracticeStreak] = useState(0);
   const [secs, setSecs] = useState(0);
   const [note, setNote] = useState(null);
 
   useEffect(() => {
     if (screen !== "practice" || secs <= 0) return;
     const t = setTimeout(() => {
-      if (secs === 1) setScreen("review");
+      if (secs === 1) {
+        saveAttempt("practice", ptopic?.id, pq, pans);
+        setScreen("review");
+      }
       else setSecs(secs - 1);
     }, 1000);
     return () => clearTimeout(t);
-  }, [screen, secs]);
+  }, [screen, secs, ptopic, pq, pans]);
 
   const startPractice = async (topic) => {
     setMsg(""); setOfflineMode(false);
     let qs = null;
     try {
-      qs = await loadQuestions(`${API_URL}/api/questions?exam=${exam}&topic=${topic.id}&limit=10`);
+      qs = await loadQuestions(`${API_URL}/api/questions?exam=${exam}&topic=${topic.id}&limit=60`);
     } catch {
-      qs = packQuestions(topic.id, 10);
+      qs = packQuestions(topic.id, 60);
     }
     if (!qs || !qs.length) return setMsg(`No questions for ${topic.name} (bank growing).`);
-    setPtopic(topic); setPq(qs); setPqi(0); setPans([]);
+    const first = [...qs].sort((a, b) => Math.abs(a.difficulty - 2) - Math.abs(b.difficulty - 2))[0];
+    setPracticePool(qs);
+    setPtopic(topic); setPq([first]); setPqi(0); setPans([]);
+    setPracticeTarget(2); setPracticeStreak(0);
     setSecs(10 * 60); // standard 10Q drill, 10 min
     setStartedAt(Date.now());
     setScreen("practice");
@@ -158,9 +170,33 @@ function AppInner() {
   const answerPractice = (idx) => {
     const q = pq[pqi];
     const next = [...pans, { q, picked: idx, correct: idx === q.answer_idx }];
+    const updatedStreak = next[next.length - 1].correct
+      ? (practiceStreak > 0 ? practiceStreak + 1 : 1)
+      : (practiceStreak < 0 ? practiceStreak - 1 : -1);
+    let nextTarget = practiceTarget;
+    let nextStreak = updatedStreak;
+    if (updatedStreak >= 2) {
+      nextTarget = Math.min(3, practiceTarget + 1);
+      nextStreak = 0;
+    } else if (updatedStreak <= -2) {
+      nextTarget = Math.max(1, practiceTarget - 1);
+      nextStreak = 0;
+    }
+    setPracticeTarget(nextTarget);
+    setPracticeStreak(nextStreak);
     setPans(next);
-    if (pqi + 1 >= pq.length) { saveAttempt("practice", ptopic.id, pq, next); setScreen("review"); }
-    else setPqi(pqi + 1);
+    const used = new Set(next.map((a) => a.q.id));
+    const remaining = practicePool.filter((candidate) => !used.has(candidate.id));
+    const nextQuestion = remaining.sort(
+      (a, b) => Math.abs(a.difficulty - nextTarget) - Math.abs(b.difficulty - nextTarget)
+    )[0];
+    if (next.length >= 10 || !nextQuestion) {
+      saveAttempt("practice", ptopic.id, pq, next);
+      setScreen("review");
+      return;
+    }
+    setPq([...pq, nextQuestion]);
+    setPqi(pqi + 1);
   };
 
   const openNotes = async (topic) => {
@@ -215,10 +251,13 @@ function AppInner() {
     fetch(`${API_URL}/api/attempts`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-    }).then(() => setPending(pendingCount())).catch(() => {
+    }).then((res) => {
+      if (!res.ok) throw new Error(`Attempt save failed (${res.status})`);
+      setPending(pendingCount());
+    }).catch(() => {
       queueAttempt(payload); // O2: queue offline, sync later
       setPending(pendingCount());
-      setMsg("Saved offline — will sync when you're back online.");
+      setMsg("Could not save online — result queued to retry.");
     });
     trackEvent(kind === "diagnostic" ? "diagnostic_finish" : kind === "mock" ? "mock_finish" : "quiz_finish", { score, total: qs.length });
     return score;
@@ -247,6 +286,7 @@ function AppInner() {
           body: JSON.stringify(p),
         });
         if (res.ok) { dropQueued(p.client_uuid); ok += 1; }
+        else { break; }
       } catch { break; }
     }
     setPending(pendingCount());
@@ -394,7 +434,10 @@ function AppInner() {
   const loadConsent = async () => {
     setCamMsg("");
     const res = await fetch(`${API_URL}/api/consents?user=${encodeURIComponent(userId)}`);
-    setConsentInfo(res.ok ? await res.json() : null);
+    const data = await res.json().catch(() => null);
+    setConsentInfo(res.ok ? data : null);
+    if (res.status === 503) setCamMsg("Proctored exams are unavailable until an approved camera notice is configured.");
+    else if (!res.ok) setCamMsg("Could not load consent details. Check your connection and try again.");
     setScreen("consent");
   };
 
@@ -825,9 +868,9 @@ function AppInner() {
       all = all.filter((q) => ids.has(q.topic_id));
     }
     if (!all.length) return setMsg("No questions seeded for this exam yet.");
-    const byDiff = (d) => all.filter((q) => q.difficulty === d);
-    const ordered = [...byDiff(2), ...byDiff(1), ...byDiff(3)].slice(0, 10);
-    setQuiz(ordered); setQi(0); setAnswers([]); setTarget(2); setStreak(0);
+    const first = [...all].sort((a, b) => Math.abs(a.difficulty - 2) - Math.abs(b.difficulty - 2))[0];
+    setQuizPool(all);
+    setQuiz([first]); setQi(0); setAnswers([]); setTarget(2); setStreak(0);
     setStartedAt(Date.now());
     setScreen("quiz");
   };
@@ -835,19 +878,31 @@ function AppInner() {
   const answerQuiz = (idx) => {
     const q = quiz[qi];
     const correct = idx === q.answer_idx;
-    const s = correct ? streak + 1 : 0;
+    const s = correct ? (streak > 0 ? streak + 1 : 1) : (streak < 0 ? streak - 1 : -1);
     let t = target;
-    if (s >= 2 && t < 3) { t = t + 1; setStreak(0); } else setStreak(s);
-    if (!correct && t > 1) t = t - 1;
+    let nextStreak = s;
+    if (s >= 2) { t = Math.min(3, t + 1); nextStreak = 0; }
+    if (s <= -2) { t = Math.max(1, t - 1); nextStreak = 0; }
     setTarget(t);
+    setStreak(nextStreak);
     const next = [...answers, { q, picked: idx, correct }];
     setAnswers(next);
-    if (qi + 1 >= quiz.length) { saveAttempt("diagnostic", null, quiz, next); setScreen("results"); }
-    else setQi(qi + 1);
+    const used = new Set(next.map((a) => a.q.id));
+    const remaining = quizPool.filter((candidate) => !used.has(candidate.id));
+    const nextQuestion = remaining.sort(
+      (a, b) => Math.abs(a.difficulty - t) - Math.abs(b.difficulty - t)
+    )[0];
+    if (next.length >= 15 || !nextQuestion) {
+      saveAttempt("diagnostic", null, quiz, next);
+      setScreen("results");
+      return;
+    }
+    setQuiz([...quiz, nextQuestion]);
+    setQi(qi + 1);
   };
 
   const pauseQuiz = () => {
-    setDraft({ kind: "diagnostic", quiz, qi, answers, target, streak });
+    setDraft({ kind: "diagnostic", quiz, quizPool, qi, answers, target, streak });
     setScreen("home");
     setMsg("Diagnostic paused — tap Continue to resume.");
   };
@@ -873,7 +928,7 @@ function AppInner() {
       setMockLabel(draft.mockLabel); setMq(draft.mq); setMqi(draft.mqi); setMans(draft.mans); setMsecs(draft.msecs);
       setScreen("mockrun");
     } else {
-      setQuiz(draft.quiz); setQi(draft.qi); setAnswers(draft.answers); setTarget(draft.target); setStreak(draft.streak);
+      setQuiz(draft.quiz); setQuizPool(draft.quizPool); setQi(draft.qi); setAnswers(draft.answers); setTarget(draft.target); setStreak(draft.streak);
       setScreen("quiz");
     }
   };
@@ -967,11 +1022,12 @@ function AppInner() {
   if (screen === "quiz" && quiz[qi]) {
     const q = quiz[qi];
     const opts = typeof q.options === "string" ? JSON.parse(q.options) : q.options;
+    const quizLength = Math.min(15, quizPool.length);
     return (
       <Screen>
-        <PageHeader title={`Diagnostic ${qi + 1}/${quiz.length}`} subtitle={`Adaptive · level ${q.difficulty}`} color={colors.tutor} />
+        <PageHeader title={`Diagnostic ${qi + 1}/${quizLength}`} subtitle={`Adaptive · level ${q.difficulty}`} color={colors.tutor} />
         {repeatNote ? <Text style={{ ...type.small, color: colors.muted }}>{repeatNote}</Text> : null}
-        <ProgressBar value={qi / quiz.length} color={colors.tutor} />
+        <ProgressBar value={(qi + 1) / quizLength} color={colors.tutor} />
         <HoverCard>
           <Text style={{ fontSize: 17, fontWeight: "700", lineHeight: 24 }}>{q.stem}</Text>
         </HoverCard>
@@ -1015,12 +1071,13 @@ function AppInner() {
     const opts = typeof q.options === "string" ? JSON.parse(q.options) : q.options;
     const mm = String(Math.floor(secs / 60)).padStart(2, "0");
     const ss = String(secs % 60).padStart(2, "0");
+    const practiceLength = Math.min(10, practicePool.length);
     return (
       <Screen>
-        <PageHeader title={`${ptopic.name} ${pqi + 1}/${pq.length}`} subtitle="Standard 10Q drill" color={colors.primary} />
+        <PageHeader title={`${ptopic.name} ${pqi + 1}/${practiceLength}`} subtitle="Adaptive 10Q drill" color={colors.primary} />
         {repeatNote ? <Text style={{ ...type.small, color: colors.muted }}>{repeatNote}</Text> : null}
         <TimerPill label={`${mm}:${ss}`} />
-        <ProgressBar value={pqi / pq.length} />
+        <ProgressBar value={(pqi + 1) / practiceLength} />
         <HoverCard>
           <Text style={{ fontSize: 17, fontWeight: "700", lineHeight: 24 }}>{q.stem}</Text>
         </HoverCard>
@@ -1387,15 +1444,20 @@ function AppInner() {
     return (
       <Screen fab={tutorFab}>
         <PageHeader title="🛡 Proctored exam" subtitle="Consent first — both boxes required" color={colors.danger} />
-        <Card>
-          <Text style={{ ...type.body }}>{consentInfo?.notice?.body || "Loading the camera notice…"}</Text>
-        </Card>
-        <SectionTitle>School consent</SectionTitle>
-        <Field label="School name" value={schoolName} onChangeText={setSchoolName} placeholder="e.g. King's College Lagos" />
-        <SectionTitle>Parent / guardian consent (required for minors)</SectionTitle>
-        <Field label="Parent/guardian full name" value={parentName} onChangeText={setParentName} placeholder="Full name" />
-        <Field label="Relationship (e.g. mother, father, guardian)" value={parentRel} onChangeText={setParentRel} placeholder="mother" />
-        <Btn title={done ? "Consent complete — continue ✓" : "Save consents"} onPress={done ? () => setScreen("camPrompt") : submitConsents} />
+        {consentInfo?.notice ? (
+          <>
+            <Card>
+              <Text style={{ ...type.h2 }}>{consentInfo.notice.title}</Text>
+              <Text style={{ ...type.body }}>{consentInfo.notice.body}</Text>
+            </Card>
+            <SectionTitle>School consent</SectionTitle>
+            <Field label="School name" value={schoolName} onChangeText={setSchoolName} placeholder="e.g. King's College Lagos" />
+            <SectionTitle>Parent / guardian consent (required for minors)</SectionTitle>
+            <Field label="Parent/guardian full name" value={parentName} onChangeText={setParentName} placeholder="Full name" />
+            <Field label="Relationship (e.g. mother, father, guardian)" value={parentRel} onChangeText={setParentRel} placeholder="mother" />
+            <Btn title={done ? "Consent complete — continue ✓" : "Save consents"} onPress={done ? () => setScreen("camPrompt") : submitConsents} />
+          </>
+        ) : null}
         {camMsg ? <Card><Text>{camMsg}</Text></Card> : null}
         <Btn title="← Back home" variant="ghost" onPress={() => setScreen("home")} />
       </Screen>

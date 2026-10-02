@@ -131,9 +131,10 @@ Qubator/
 > eligibility is a configurable `eligible` flag on each department–subject
 > link (default: allow), not hard-coded — see `curriculum_dept_subjects`.
 
-## Getting Started (Phase 0 scaffold)
+## Getting Started
 
-No Docker or Postgres on this device yet — install Postgres or Docker Desktop first, or just explore the code.
+Use a local PostgreSQL database configured in `server/.env`. Docker Compose is
+also available if you prefer to run PostgreSQL in Docker.
 
 ```sh
 # 1. DB (option A: Docker)
@@ -144,13 +145,28 @@ docker compose up -d db
 cd server
 cp .env.example .env
 npm install
-psql "$DATABASE_URL" -f db/schema.sql
-psql "$DATABASE_URL" -f db/seed.sql
-psql "$DATABASE_URL" -f db/curriculum_schema.sql
-node scripts/import-curriculum.js   # load the WAEC syllabus (idempotent)
-npm test                            # curriculum test suite
+npm run db:migrate                  # applies all schema files in order
+npm run db:seed                     # seed sample exam content (fresh DB only)
+npm run import:curriculum           # idempotently load the WAEC syllabus
 npm run dev
+```
 
+For an existing database, apply `npm run db:migrate` and
+`npm run import:curriculum`; do not re-run `db:seed`, which adds sample
+question rows. Start the API before running the integration tests:
+
+```sh
+# In one terminal, with server/.env configured:
+npm run dev
+# In another terminal:
+npm test
+```
+
+Proctored exams remain disabled until an approved, versioned camera-consent
+notice is added to `consent_notices`. The wording needs privacy/legal review;
+see `doc/privacy_checklist.md` before activating one.
+
+```sh
 # 3. App (Expo)
 cd ../app
 npm install

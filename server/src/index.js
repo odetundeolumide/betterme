@@ -41,12 +41,18 @@ app.get("/api/topics", async (req, res) => {
 });
 
 app.get("/api/questions", async (req, res) => {
-  const { exam, topic, limit, user, exclude_seen } = req.query;
+  const { exam, topic, limit, user, exclude_seen, difficulty } = req.query;
   const n = Math.min(Math.max(parseInt(limit, 10) || 15, 1), 150);
   const base = `FROM questions
      WHERE ($1::text IS NULL OR exam_code = $1)
-       AND ($2::int IS NULL OR topic_id = $2)`;
-  const params = [exam || null, topic || null];
+       AND ($2::int IS NULL OR topic_id = $2)
+       AND ($3::int IS NULL OR difficulty = $3)`;
+  const parsedDifficulty = Number.parseInt(difficulty, 10);
+  const params = [
+    exam || null,
+    topic || null,
+    Number.isInteger(parsedDifficulty) && parsedDifficulty >= 1 && parsedDifficulty <= 3 ? parsedDifficulty : null,
+  ];
   // Unseen-first: exclude question ids this student already answered so
   // repeat trials and diagnostics feel fresh. When the bank runs dry we
   // refill from seen questions and report how many repeats that meant.
@@ -59,7 +65,7 @@ app.get("/api/questions", async (req, res) => {
     );
     seenIds = seen.rows.map((r) => r.qid).filter(Number.isInteger);
   }
-  const notSeen = seenIds.length ? ` AND id <> ALL($3::int[])` : "";
+  const notSeen = seenIds.length ? ` AND id <> ALL($4::int[])` : "";
   const fresh = await pool.query(
     `SELECT id, exam_code, topic_id, stem, options, answer_idx, explanation, difficulty
      ${base}${notSeen} ORDER BY RANDOM() LIMIT ${n}`,
@@ -70,7 +76,7 @@ app.get("/api/questions", async (req, res) => {
   if (rows.length < n && seenIds.length) {
     const fill = await pool.query(
       `SELECT id, exam_code, topic_id, stem, options, answer_idx, explanation, difficulty
-       ${base} AND id <> ALL($3::int[]) ORDER BY RANDOM() LIMIT ${n - rows.length}`,
+       ${base} AND id <> ALL($4::int[]) ORDER BY RANDOM() LIMIT ${n - rows.length}`,
       [...params, rows.map((r) => r.id)]
     );
     repeated = fill.rows.length;
@@ -819,9 +825,10 @@ app.get("/api/consents", async (req, res) => {
   const user = req.query.user;
   if (!user) return res.status(401).json({ error: "user required" });
   const notice = await pool.query("SELECT version, title, body FROM consent_notices WHERE active ORDER BY version DESC LIMIT 1");
+  if (!notice.rows.length) return res.status(503).json({ error: "proctoring consent notice is not configured" });
   const cons = await pool.query("SELECT consent_type, notice_version, consenter_name, relationship, created_at FROM consents WHERE student_id=$1", [user]);
   const have = new Set(cons.rows.map((r) => `${r.consent_type}@${r.notice_version}`));
-  const v = notice.rows[0]?.version;
+  const v = notice.rows[0].version;
   res.json({
     notice: notice.rows[0] || null,
     consents: cons.rows,
@@ -858,12 +865,11 @@ app.get("/api/proctor-config", async (_req, res) => {
 app.post("/api/exam-sessions", async (req, res) => {
   const { student_id, exam_code } = req.body || {};
   if (!(await currRequireUserSafe(student_id, res))) return;
-  // Block proctored start without both consents on the active notice.
+  // Proctoring stays unavailable until an approved notice is configured.
   const n = await pool.query("SELECT version FROM consent_notices WHERE active ORDER BY version DESC LIMIT 1");
-  if (n.rows.length) {
-    const c = await pool.query("SELECT COUNT(DISTINCT consent_type)::int AS k FROM consents WHERE student_id=$1 AND notice_version=$2", [student_id, n.rows[0].version]);
-    if (c.rows[0].k < 2) return res.status(403).json({ error: "school + parent consent required", need_consent: true });
-  }
+  if (!n.rows.length) return res.status(503).json({ error: "proctoring consent notice is not configured" });
+  const c = await pool.query("SELECT COUNT(DISTINCT consent_type)::int AS k FROM consents WHERE student_id=$1 AND notice_version=$2", [student_id, n.rows[0].version]);
+  if (c.rows[0].k < 2) return res.status(403).json({ error: "school + parent consent required", need_consent: true });
   const { rows } = await pool.query(
     "INSERT INTO exam_sessions (student_id, exam_code) VALUES ($1,$2) RETURNING id, started_at",
     [student_id, exam_code || "WAEC"]

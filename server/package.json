@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "node src/index.js",
-    "db:init": "psql %DATABASE_URL% -f db/schema.sql",
-    "db:seed": "psql %DATABASE_URL% -f db/seed.sql",
-    "db:curriculum": "psql %DATABASE_URL% -f db/curriculum_schema.sql",
+    "db:init": "npm run db:migrate",
+    "db:migrate": "node scripts/migrate-db.js",
+    "db:seed": "node scripts/seed-db.js",
     "import:curriculum": "node scripts/import-curriculum.js",
     "test": "node --test tests/curriculum.test.js tests/permissions.test.js tests/notify.test.js tests/proctor.test.js tests/feedback.test.js"
   },
