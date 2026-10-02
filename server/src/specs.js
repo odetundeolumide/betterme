@@ -8,6 +8,7 @@ export const EXAM_SPECS = {
     subjects: {
       Mathematics: { questions: 50, minutes: 90, verify: false },
       English: { questions: 80, minutes: 60, verify: true },
+      "English Language": { questions: 80, minutes: 60, verify: true },
       default: { questions: 50, minutes: 60, verify: true },
     },
     diagnostic: { questions: 15, minutes: 15 },

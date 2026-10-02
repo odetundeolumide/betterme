@@ -147,13 +147,17 @@ cp .env.example .env
 npm install
 npm run db:migrate                  # applies all schema files in order
 npm run db:seed                     # seed sample exam content (fresh DB only)
+npm run import:waec-mathematics     # add original WAEC Mathematics mock questions
 npm run import:curriculum           # idempotently load the WAEC syllabus
 npm run dev
 ```
 
 For an existing database, apply `npm run db:migrate` and
 `npm run import:curriculum`; do not re-run `db:seed`, which adds sample
-question rows. Start the API before running the integration tests:
+question rows. The WAEC Mathematics importer is safe to re-run and adds the
+questions needed for a 50-question standard mock. Other subjects remain
+unavailable as full-length mocks until their banks are expanded. Start the API
+before running the integration tests:
 
 ```sh
 # In one terminal, with server/.env configured:

@@ -754,7 +754,10 @@ function AppInner() {
     } catch {
       qs = packQuestions(topicId, count);
     }
-    if (!qs || !qs.length) return setMsg("No questions banked yet.");
+    if (!qs || qs.length < count) {
+      const available = qs?.length || 0;
+      return setMsg(`Question bank is incomplete: ${available} of ${count} standard questions are available. Try again after the bank is expanded.`);
+    }
     let sessionId = null;
     let config = null;
     if (proctorArmed) {
