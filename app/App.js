@@ -24,7 +24,7 @@ class Boundary extends React.Component {
   }
 }
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || (typeof window !== "undefined" ? "" : "http://localhost:3000");
 const EXAMS = ["WAEC", "TOEFL", "SAT", "GRE"];
 
 export default function App() {
