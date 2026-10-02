@@ -8,12 +8,20 @@
     "newArchEnabled": true,
     "android": {
       "package": "com.odetundeolumide.betterme",
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
     },
     "plugins": [
       "expo-asset",
       "expo-notifications",
       "expo-camera"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c2fde3bb-e215-4b38-b793-2531875212ab"
+      }
+    }
   }
 }
