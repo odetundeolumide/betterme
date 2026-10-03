@@ -14,7 +14,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://seven-wash-organisations-heater.trycloudflare.com"
+        "EXPO_PUBLIC_API_URL": "https://betterme-1.onrender.com"
       }
     },
     "production": {
