@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, TextInput, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Platform } from "react-native";
 import { colors, spacing, type, radius, shadow, page } from "./theme";
 import { Btn, Card, Badge, ProgressBar, SectionTitle, ChatBubble, LeaderRow, Screen, PageHeader, HoverCard, MenuRow, EmptyState, Field, TutorBuddy, TimerPill, PrePrompt } from "./components";
 import { savePack, loadPack, queueAttempt, pendingAttempts, dropQueued, pendingCount, uuid } from "./offline";
@@ -25,6 +25,7 @@ class Boundary extends React.Component {
 }
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const AUTH_ORIGIN = "https://betterme1.netlify.app";
 const EXAMS = ["WAEC", "TOEFL", "SAT", "GRE"];
 
 export default function App() {
@@ -76,30 +77,36 @@ function AppInner() {
   const callAuth = async (mode) => {
     setMsg("");
     const body = JSON.stringify({ email, password, name: email });
+    const headers = { "Content-Type": "application/json" };
+    if (Platform.OS !== "web") headers.Origin = AUTH_ORIGIN;
     const attempt = (m) => fetch(`${API_URL}/api/auth/${m}/email`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body,
     });
-    let res = await attempt(mode);
-    if (!res.ok && mode === "sign-up") {
-      // Account already exists? Just sign them in instead.
-      let code = "";
-      try { code = (await res.json())?.code || ""; } catch { /* ignore */ }
-      if (res.status === 422 && code.includes("EXISTS")) {
-        res = await attempt("sign-in");
-        if (!res.ok) return setMsg("Account exists but the password didn't match — check it and tap Sign in.");
-      } else if (res.status === 422) {
-        return setMsg("Check your email format and use a 8+ character password.");
-      } else {
-        return setMsg(`Sign-up failed (${res.status}) — is the server running?`);
+    try {
+      let res = await attempt(mode);
+      let result = await res.json().catch(() => null);
+      if (!res.ok && mode === "sign-up") {
+        // Account already exists? Just sign them in instead.
+        const code = result?.code || "";
+        if (res.status === 422 && code.includes("EXISTS")) {
+          res = await attempt("sign-in");
+          result = await res.json().catch(() => null);
+          if (!res.ok) return setMsg("Account exists but the password didn't match — check it and tap Sign in.");
+        } else if (res.status === 422) {
+          return setMsg("Check your email format and use a 8+ character password.");
+        } else {
+          return setMsg(`Sign-up failed (${res.status})${result?.code ? `: ${result.code}` : ""}.`);
+        }
       }
+      if (!res.ok) return setMsg(`Auth failed (${res.status})${result?.code ? `: ${result.code}` : ""} — check email/password and tap Sign in.`);
+      if (!result?.user?.id) return setMsg("Sign-in succeeded but the account ID was missing. Please try again.");
+      setUserId(result.user.id);
+      setScreen("exams");
+    } catch {
+      setMsg("Could not reach the server. Check your internet connection and try again.");
     }
-    if (!res.ok) return setMsg(`Auth failed (${res.status}) — check email/password and tap Sign in.`);
-    const authResult = await res.json().catch(() => null);
-    if (!authResult?.user?.id) return setMsg("Sign-in succeeded but the account ID was missing. Please try again.");
-    setUserId(authResult.user.id);
-    setScreen("exams");
   };
 
   const pickExam = async (code) => {
